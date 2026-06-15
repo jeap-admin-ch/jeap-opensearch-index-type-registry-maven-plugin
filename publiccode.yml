@@ -1,0 +1,47 @@
+publiccodeYmlVersion: 0.5.0
+name: jeap-opensearch-index-type-registry-maven-plugin
+applicationSuite: jEAP
+softwareVersion: 1.0.0
+releaseDate: 2026-06-15
+url: "https://github.com/jeap-admin-ch/jeap-opensearch-index-type-registry-maven-plugin.git"
+landingURL: "https://github.com/jeap-admin-ch/jeap"
+platforms:
+  - web
+categories:
+  - application-development
+developmentStatus: stable
+softwareType: library
+organisation:
+  uri: https://ld.admin.ch/office/V.1.7
+  name: Federal Office of Information Technology, Systems and Telecommunication
+description:
+  en:
+    localisedName: jeap-opensearch-index-type-registry-maven-plugin
+    shortDescription: Maven plugin for managing an OpenSearch index type registry with validation and code generation
+    longDescription: >
+      jeap-opensearch-index-type-registry-maven-plugin manages an OpenSearch Index Type Registry — a Git repository
+      that documents all OpenSearch index types used within a microservice landscape.
+      On every build the plugin validates the registry structure and mapping schemas (using networknt json-schema-validator),
+      enforces immutability of existing mappings by CRC32 comparison against the configured trunk branch (cloned via JGit),
+      and checks minor-version backward compatibility (new minor versions may only add fields, never remove them).
+      For each (index type, major version) pair it generates a typed Java record for the data section and an IndexType<T>
+      singleton, and packages them into an individual Maven artifact together with mapping files, a ServiceLoader
+      registration, and a META-INF/index-types.json metadata file.
+      The deploy-index-type-artifacts goal publishes these artifacts to a Maven repository; on feature branches the
+      artifact version includes the branch name as a SNAPSHOT qualifier.
+    features:
+      - Registry validation: naming rules, schema validation, CRC32 immutability checks, minor-version compatibility
+      - Java code generation: typed data records and IndexType<T> singletons per (type, major version)
+      - Per-type Maven artifact deployment with idempotent redeploy handling
+      - Feature-branch SNAPSHOT versioning for safe pre-merge testing
+legal:
+  license: Apache-2.0
+maintenance:
+  type: internal
+  contacts:
+    - name: Federal Office of Information Technology, Systems and Telecommunication FOITT
+      email: jeap-community@bit.admin.ch
+localisation:
+  localisationReady: false
+  availableLanguages:
+    - en
