@@ -30,8 +30,8 @@ description:
       The deploy-index-type-artifacts goal publishes these artifacts to a Maven repository; on feature branches the
       artifact version includes the branch name as a SNAPSHOT qualifier.
     features:
-      - Registry validation: naming rules, schema validation, CRC32 immutability checks, minor-version compatibility
-      - Java code generation: typed data records and IndexType<T> singletons per (type, major version)
+      - "Registry validation: naming rules, schema validation, CRC32 immutability checks, minor-version compatibility"
+      - "Java code generation: typed data records and IndexType singletons per (type, major version)"
       - Per-type Maven artifact deployment with idempotent redeploy handling
       - Feature-branch SNAPSHOT versioning for safe pre-merge testing
 legal:

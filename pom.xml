@@ -220,6 +220,15 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>license-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-third-party</id>
+                        <configuration>
+                            <outputDirectory>${project.basedir}</outputDirectory>
+                            <thirdPartyFilename>THIRD-PARTY-LICENSES.md</thirdPartyFilename>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
