@@ -2,7 +2,7 @@ publiccodeYmlVersion: 0.5.0
 name: jeap-opensearch-index-type-registry-maven-plugin
 applicationSuite: jEAP
 softwareVersion: 1.0.0
-releaseDate: 2026-06-15
+releaseDate: 2026-06-16
 url: "https://github.com/jeap-admin-ch/jeap-opensearch-index-type-registry-maven-plugin.git"
 landingURL: "https://github.com/jeap-admin-ch/jeap"
 platforms:
