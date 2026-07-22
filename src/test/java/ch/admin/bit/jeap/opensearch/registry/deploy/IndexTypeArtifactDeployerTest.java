@@ -138,6 +138,41 @@ class IndexTypeArtifactDeployerTest {
                 .hasMessageContaining("Custom POM template not found");
     }
 
+    @Test
+    void fallsBackToBasedirSettingsFileWhenNotConfigured(@TempDir File outputDir, @TempDir File mappingDir,
+                                                          @TempDir File basedir)
+            throws IOException, MojoExecutionException {
+        File settingsFile = new File(basedir, "settings.xml");
+        Files.writeString(settingsFile.toPath(), "<settings/>");
+        MavenProject project = new MavenProject();
+        project.setFile(new File(basedir, "pom.xml"));
+
+        CapturingDeployer deployer = new CapturingDeployer("ch.admin.bit", "1.0", outputDir, null,
+                project);
+        File mapping = writeMappingFile(mappingDir, "MyType_mapping_v1_0.json");
+
+        deployer.deploy(info("MyType", "SYS", 1, "1.0", List.of(mapping)));
+
+        assertThat(deployer.capturedRequest.getGlobalSettingsFile()).isEqualTo(settingsFile);
+    }
+
+    @Test
+    void noGlobalSettingsFileSetWhenNoneConfiguredAndNoneFoundInBasedir(@TempDir File outputDir,
+                                                                         @TempDir File mappingDir,
+                                                                         @TempDir File basedir)
+            throws IOException, MojoExecutionException {
+        MavenProject project = new MavenProject();
+        project.setFile(new File(basedir, "pom.xml"));
+
+        CapturingDeployer deployer = new CapturingDeployer("ch.admin.bit", "1.0", outputDir, null,
+                project);
+        File mapping = writeMappingFile(mappingDir, "MyType_mapping_v1_0.json");
+
+        deployer.deploy(info("MyType", "SYS", 1, "1.0", List.of(mapping)));
+
+        assertThat(deployer.capturedRequest.getGlobalSettingsFile()).isNull();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static IndexTypeArtifactDeployer.IndexTypeInfo info(String typeName, String system,
@@ -172,6 +207,12 @@ class IndexTypeArtifactDeployerTest {
         CapturingDeployer(String groupIdPrefix, String indexTypeVersion, File outputDir, File pomTemplateFile) {
             super("deploy", null, null, null,
                     groupIdPrefix, indexTypeVersion, outputDir, pomTemplateFile, new MavenProject(), new SystemStreamLog());
+        }
+
+        CapturingDeployer(String groupIdPrefix, String indexTypeVersion, File outputDir, File pomTemplateFile,
+                           MavenProject project) {
+            super("deploy", null, null, null,
+                    groupIdPrefix, indexTypeVersion, outputDir, pomTemplateFile, project, new SystemStreamLog());
         }
 
         @Override
