@@ -16,7 +16,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 public class IndexTypeArtifactDeployer {
 
@@ -184,6 +186,14 @@ public class IndexTypeArtifactDeployer {
 
         Properties props = new Properties();
         props.setProperty("maven.test.skip", "true");
+        // Colored output
+        props.setProperty("style.color", "always");
+        props.setProperty("jansi.force", "true");
+        // Pass proxy properties to invoked maven instance
+        Map<String, String> proxyProperties = System.getProperties().entrySet().stream()
+                .filter(e -> e.getKey().toString().matches("^http.*[pP]roxy.*$")) // NOSONAR
+                .collect(Collectors.toMap(e -> e.getKey().toString(), e -> e.getValue().toString()));
+        props.putAll(proxyProperties);
         request.setProperties(props);
 
         StringBuilder outputCapture = new StringBuilder();

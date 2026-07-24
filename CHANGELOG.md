@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-07-24
+
+### Fixed
+- `deploy-index-type-artifacts`: proxy system properties (e.g. `https.proxyHost`, `https.proxyPort`) from the outer Maven process are now forwarded to the nested per-index-type `mvn deploy` invocation, matching the convention used by `jeap-messaging-avro-maven-plugin` and `jeap-process-archive-avro-maven-plugin`. Previously, the nested invocation lost proxy configuration, which could cause connection timeouts when publishing to Maven Central through a proxy.
+
+### Changed
+- `deploy-index-type-artifacts`: nested Maven invocations now also set `style.color=always` and `jansi.force=true` for colored console output, matching the convention used by `jeap-messaging-avro-maven-plugin` and `jeap-process-archive-avro-maven-plugin`.
+
 ## [1.11.0] - 2026-07-23
 
 ### Changed

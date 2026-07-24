@@ -173,6 +173,26 @@ class IndexTypeArtifactDeployerTest {
         assertThat(deployer.capturedRequest.getGlobalSettingsFile()).isNull();
     }
 
+    @Test
+    void proxyPropertiesForwardedToNestedMavenInvocation(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        System.setProperty("https.proxyHost", "proxy.example.com");
+        System.setProperty("https.proxyPort", "8080");
+        try {
+            CapturingDeployer deployer = new CapturingDeployer("ch.admin.bit", "1.0", outputDir);
+            File mapping = writeMappingFile(mappingDir, "MyType_mapping_v1_0.json");
+
+            deployer.deploy(info("MyType", "SYS", 1, "1.0", List.of(mapping)));
+
+            assertThat(deployer.capturedRequest.getProperties())
+                    .containsEntry("https.proxyHost", "proxy.example.com")
+                    .containsEntry("https.proxyPort", "8080");
+        } finally {
+            System.clearProperty("https.proxyHost");
+            System.clearProperty("https.proxyPort");
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static IndexTypeArtifactDeployer.IndexTypeInfo info(String typeName, String system,
