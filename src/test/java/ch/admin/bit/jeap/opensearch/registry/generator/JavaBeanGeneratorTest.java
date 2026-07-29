@@ -6,8 +6,12 @@ import org.apache.maven.plugin.logging.SystemStreamLog;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import tools.jackson.databind.json.JsonMapper;
+
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.util.List;
 
@@ -252,9 +256,10 @@ class JavaBeanGeneratorTest {
 
                 import com.fasterxml.jackson.annotation.JsonProperty;
                 import java.time.Instant;
+                import java.util.List;
 
                 public record JmeDecreeDocumentDataV1(
-                    Cases cases
+                    List<Cases> cases
                 ) {
 
                     public record Cases(
@@ -384,13 +389,203 @@ class JavaBeanGeneratorTest {
         // The compat constructor takes the v1.0 field set and passes null for the field added in v1.1
         assertThat(source).contains("""
                     public JmeDecreeDocumentDataV1(
-                        Cases cases
+                        List<Cases> cases
                     ) {
                         this(cases, null);
                     }
                 """);
         assertThat(compile(outputDir)).isEmpty();
     }
+
+    @Test
+    void nestedFieldIsGeneratedAsListAndObjectFieldIsNot(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", NESTED_AND_OBJECT_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String expected = """
+                package ch.admin.bit.test.index.jme.decreedocument;
+
+                import java.util.List;
+
+                public record JmeDecreeDocumentDataV1(
+                    Single single,
+                    List<Many> many
+                ) {
+
+                    public record Single(
+                        String name
+                    ) {}
+
+                    public record Many(
+                        String name
+                    ) {}
+                }
+                """;
+        assertThat(readSource(outputDir, "JmeDecreeDocumentDataV1.java")).isEqualTo(expected);
+    }
+
+    @Test
+    void nestedFieldWithoutPropertiesIsGeneratedAsListOfJsonNode(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", NESTED_WITHOUT_PROPERTIES_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("import tools.jackson.databind.JsonNode;");
+        assertThat(source).contains("import java.util.List;");
+        assertThat(source).contains("List<JsonNode> untyped");
+        // An `object` field without properties stays a single JsonNode
+        assertThat(source).contains("JsonNode reference,");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void nestedFieldInsideNestedFieldIsGeneratedAsList(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", NESTED_INSIDE_NESTED_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("List<Outer> outer");
+        assertThat(source).contains("List<Inner> inner");
+        // The record declarations themselves stay singular
+        assertThat(source).contains("public record Outer(");
+        assertThat(source).contains("public record Inner(");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void tariffaShapedNestedFieldsAreGeneratedAsLists(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v20 = writeMappingFile(mappingDir, "mapping.json", TARIFFA_SHAPED_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "TariffaProduct", "Tariffa", 2, 0, List.of(v20));
+
+        String source = Files.readString(
+                sourceFile(outputDir, "Tariffa", "TariffaProduct", "TariffaProductDataV2.java").toPath());
+        assertThat(source).contains("List<Compositions> compositions");
+        assertThat(source).contains("List<Cases> cases");
+        // `ingredient` and `control_pattern` are `object`, not `nested` — they stay single-valued
+        assertThat(source).contains("Ingredient ingredient,");
+        assertThat(source).contains("@JsonProperty(\"control_pattern\") ControlPattern controlPattern");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void generatedRecordDeserializesAnArrayPayloadForNestedFields(@TempDir File outputDir, @TempDir File mappingDir)
+            throws Exception {
+        // The index writer service converts the producer's raw JSON into the generated data class
+        // (MessageIndexingService#toSearchItemIndexed). A `nested` field arrives as a JSON array, so
+        // the generated component must accept one — a single-valued component throws MismatchedInputException.
+        File v20 = writeMappingFile(mappingDir, "mapping.json", TARIFFA_SHAPED_MAPPING);
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "TariffaProduct", "Tariffa", 2, 0, List.of(v20));
+
+        GeneratedSourceCompiler.Result compiled = GeneratedSourceCompiler.compileToClasses(outputDir);
+        assertThat(compiled.errors()).isEmpty();
+
+        String json = """
+                {
+                  "case_reference": "REF-1",
+                  "compositions": [
+                    { "ingredient": { "name": "sugar" }, "proportion": 0.4, "unit": "kg" },
+                    { "ingredient": { "name": "salt" }, "proportion": 0.6, "unit": "kg" }
+                  ],
+                  "cases": [
+                    { "case_reference": "C-1", "control_pattern": { "factual_name": "n1", "decided": "2026-07-29T10:00:00Z" } },
+                    { "case_reference": "C-2", "control_pattern": { "factual_name": "n2", "decided": "2026-07-29T11:00:00Z" } }
+                  ]
+                }
+                """;
+
+        try (URLClassLoader classLoader = new URLClassLoader(
+                new URL[]{compiled.classOutput().toUri().toURL()}, getClass().getClassLoader())) {
+            Class<?> dataClass = classLoader.loadClass(BASE_PACKAGE + ".tariffa.product.TariffaProductDataV2");
+            Object data = JsonMapper.builder().build().readValue(json, dataClass);
+
+            assertThat((List<?>) dataClass.getMethod("compositions").invoke(data)).hasSize(2);
+            assertThat((List<?>) dataClass.getMethod("cases").invoke(data)).hasSize(2);
+            assertThat(dataClass.getMethod("caseReference").invoke(data)).isEqualTo("REF-1");
+        }
+    }
+
+    private static final String NESTED_AND_OBJECT_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "single": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "text" }
+                        }
+                      },
+                      "many": {
+                        "type": "nested",
+                        "properties": {
+                          "name": { "type": "text" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String NESTED_WITHOUT_PROPERTIES_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "reference": { "type": "object", "enabled": false },
+                      "untyped": { "type": "nested" }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String NESTED_INSIDE_NESTED_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "outer": {
+                        "type": "nested",
+                        "properties": {
+                          "inner": {
+                            "type": "nested",
+                            "properties": {
+                              "name": { "type": "text" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
 
     private static final String THREE_LEVEL_MAPPING = """
             {

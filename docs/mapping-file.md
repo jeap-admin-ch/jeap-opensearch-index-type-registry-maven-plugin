@@ -86,24 +86,67 @@ The `data` section defines the business fields specific to the index type. Field
 
 ## OpenSearch to Java type mapping
 
-The plugin generates Java records from the `data` section. Nested `object` fields with
-sub-`properties` become inner records.
+The plugin generates Java records from the `data` section. `object` and `nested` fields with
+sub-`properties` become inner records, declared inside the record of the field they belong to, at
+any nesting depth.
 
-| OpenSearch type                                   | Java type              |
-|---------------------------------------------------|------------------------|
-| `keyword`, `text`, `wildcard`, `constant_keyword` | `String`               |
-| `integer`, `short`, `byte`                        | `Integer`              |
-| `long`                                            | `Long`                 |
-| `float`, `half_float`                             | `Float`                |
-| `double`, `scaled_float`                          | `Double`               |
-| `boolean`                                         | `Boolean`              |
-| `date`                                            | `java.time.Instant`    |
-| `binary`                                          | `String`               |
-| `object` / `nested` with no sub-`properties`      | `JsonNode`             |
-| `object` / `nested` with sub-`properties`         | Generated inner record |
+| OpenSearch type                                   | Java type                      |
+|---------------------------------------------------|--------------------------------|
+| `keyword`, `text`, `wildcard`, `constant_keyword` | `String`                       |
+| `integer`, `short`, `byte`                        | `Integer`                      |
+| `long`                                            | `Long`                         |
+| `float`, `half_float`                             | `Float`                        |
+| `double`, `scaled_float`                          | `Double`                       |
+| `boolean`                                         | `Boolean`                      |
+| `date`                                            | `java.time.Instant`            |
+| `binary`                                          | `String`                       |
+| `object` with no sub-`properties`                 | `JsonNode`                     |
+| `object` with sub-`properties`                    | Generated inner record         |
+| `nested` with no sub-`properties`                 | `List<JsonNode>`               |
+| `nested` with sub-`properties`                    | `List<generated inner record>` |
 
 Fields whose JSON name differs from the Java identifier convention get a `@JsonProperty` annotation.
 For example, `document_id` → `@JsonProperty("document_id") String documentId`.
+
+### `object` versus `nested`
+
+Use `nested` when the field holds an **array** of objects whose sub-fields must stay correlated —
+that is what OpenSearch `nested` is for, and it is why the generator maps it to a `List`. Use
+`object` for a single object. Declaring `object` for a field that carries an array makes OpenSearch
+flatten the array and lose the correlation between sibling values, and the generated record will
+reject the payload.
+
+```json
+"cases": {
+  "type": "nested",
+  "properties": {
+    "case_reference": { "type": "keyword" },
+    "control_pattern": {
+      "type": "object",
+      "properties": {
+        "factual_name": { "type": "text" }
+      }
+    }
+  }
+}
+```
+
+```java
+public record MyTypeDataV1(
+    List<Cases> cases
+) {
+
+    public record Cases(
+        @JsonProperty("case_reference") String caseReference,
+        @JsonProperty("control_pattern") ControlPattern controlPattern
+    ) {
+
+        public record ControlPattern(
+            @JsonProperty("factual_name") String factualName
+        ) {}
+    }
+}
+```
 
 ## Related
 

@@ -87,16 +87,18 @@ public class JavaBeanGenerator {
             String osType = entry.getValue().path("type").asString("object");
 
             if ("object".equals(osType) || "nested".equals(osType)) {
+                // An OpenSearch 'nested' field holds an array of objects, an 'object' field a single one
+                boolean collection = "nested".equals(osType);
                 JsonNode nestedProps = entry.getValue().path("properties");
                 if (!nestedProps.isMissingNode()) {
                     SequencedMap<String, FieldDef> subFields = extractFields(nestedProps, javaName);
-                    fields.put(jsonName, new FieldDef(jsonName, javaName, null, subFields));
+                    fields.put(jsonName, new FieldDef(jsonName, javaName, null, subFields, collection));
                 } else {
-                    fields.put(jsonName, new FieldDef(jsonName, javaName, "JsonNode", null));
+                    fields.put(jsonName, new FieldDef(jsonName, javaName, "JsonNode", null, collection));
                 }
             } else {
                 String javaType = simplifyType(OpenSearchTypeMapper.toJavaType(osType));
-                fields.put(jsonName, new FieldDef(jsonName, javaName, javaType, null));
+                fields.put(jsonName, new FieldDef(jsonName, javaName, javaType, null, false));
             }
         }
         return fields;
@@ -147,6 +149,7 @@ public class JavaBeanGenerator {
         boolean needsInstant = allFields.stream().anyMatch(f -> "Instant".equals(f.javaType()));
         boolean needsJsonNode = allFields.stream().anyMatch(f -> "JsonNode".equals(f.javaType()));
         boolean needsJsonProperty = allFields.stream().anyMatch(FieldDef::needsJsonProperty);
+        boolean needsList = allFields.stream().anyMatch(FieldDef::collection);
         boolean hasNestedObjects = fields.values().stream().anyMatch(FieldDef::isNested);
 
         StringBuilder sb = new StringBuilder();
@@ -154,6 +157,7 @@ public class JavaBeanGenerator {
         if (needsJsonProperty) sb.append("import com.fasterxml.jackson.annotation.JsonProperty;\n");
         if (needsJsonNode) sb.append("import tools.jackson.databind.JsonNode;\n");
         if (needsInstant) sb.append("import java.time.Instant;\n");
+        if (needsList) sb.append("import java.util.List;\n");
         sb.append("\n");
 
         sb.append("public record ").append(className).append("(\n");
@@ -218,7 +222,7 @@ public class JavaBeanGenerator {
             if (!f.isNested()) {
                 continue;
             }
-            sb.append("\n").append(indent).append("public record ").append(f.typeName()).append("(\n");
+            sb.append("\n").append(indent).append("public record ").append(f.recordName()).append("(\n");
             List<FieldDef> subList = new ArrayList<>(f.nestedFields().values());
             for (int i = 0; i < subList.size(); i++) {
                 FieldDef sf = subList.get(i);
@@ -329,7 +333,8 @@ public class JavaBeanGenerator {
         }
     }
 
-    record FieldDef(String jsonName, String javaName, String javaType, SequencedMap<String, FieldDef> nestedFields) {
+    record FieldDef(String jsonName, String javaName, String javaType,
+                    SequencedMap<String, FieldDef> nestedFields, boolean collection) {
         boolean isNested() {
             return nestedFields != null;
         }
@@ -338,11 +343,21 @@ public class JavaBeanGenerator {
             return !jsonName.equals(javaName);
         }
 
+        /**
+         * Name of the record declared for this field. Stays singular even for a collection field:
+         * only the component type is wrapped in {@code List}, not the record itself.
+         */
+        String recordName() {
+            return OpenSearchTypeMapper.toClassName(javaName);
+        }
+
+        /**
+         * Type of the record component for this field, wrapped in {@code List} if the mapping
+         * declares the field as {@code nested}.
+         */
         String typeName() {
-            if (isNested()) {
-                return OpenSearchTypeMapper.toClassName(javaName);
-            }
-            return javaType;
+            String elementType = isNested() ? recordName() : javaType;
+            return collection ? "List<" + elementType + ">" : elementType;
         }
     }
 }

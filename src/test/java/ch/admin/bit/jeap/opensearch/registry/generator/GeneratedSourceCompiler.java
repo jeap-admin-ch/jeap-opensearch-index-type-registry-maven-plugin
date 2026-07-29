@@ -22,16 +22,32 @@ final class GeneratedSourceCompiler {
     }
 
     /**
+     * @param errors      compiler diagnostics, empty if the sources compiled
+     * @param classOutput directory holding the compiled classes
+     */
+    record Result(List<String> errors, Path classOutput) {
+    }
+
+    /**
      * @return the compiler diagnostics, empty if the sources below {@code sourceRoot} compile
      */
     static List<String> compile(File sourceRoot) {
+        return compileToClasses(sourceRoot).errors();
+    }
+
+    /**
+     * Compiles the sources below {@code sourceRoot} and keeps the class files, so that tests can
+     * load the generated records and exercise them at runtime.
+     */
+    static Result compileToClasses(File sourceRoot) {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) {
             throw new IllegalStateException("No JDK compiler available — tests must run on a JDK, not a JRE");
         }
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+        Path classOutput;
         try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null, null)) {
-            Path classOutput = Files.createTempDirectory("generated-classes");
+            classOutput = Files.createTempDirectory("generated-classes");
             List<File> sources = collectSources(sourceRoot);
             if (sources.isEmpty()) {
                 throw new IllegalStateException("No generated sources found below " + sourceRoot);
@@ -44,10 +60,11 @@ final class GeneratedSourceCompiler {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        return diagnostics.getDiagnostics().stream()
+        List<String> errors = diagnostics.getDiagnostics().stream()
                 .filter(d -> d.getKind() == Diagnostic.Kind.ERROR)
                 .map(d -> d.getSource().getName() + ":" + d.getLineNumber() + " " + d.getMessage(Locale.ENGLISH))
                 .toList();
+        return new Result(errors, classOutput);
     }
 
     private static List<File> collectSources(File sourceRoot) throws IOException {
