@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-07-29
+
+### Fixed
+- `registry`: objects nested more than one level deep below `data` now get a generated record. Previously only top-level object/nested fields were declared, so a mapping such as `data.cases.control_pattern` generated a field referencing a record that was never emitted, and the generated data class failed to compile.
+- `registry`: the `Instant`, `JsonNode` and `@JsonProperty` imports of the generated data class are now derived from fields at any nesting depth instead of only from top-level fields.
+
 ## [1.14.0] - 2026-07-28
 
 ### Changed

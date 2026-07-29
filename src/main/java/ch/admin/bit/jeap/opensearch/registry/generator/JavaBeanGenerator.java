@@ -142,14 +142,12 @@ public class JavaBeanGenerator {
     private String buildDataRecordSource(String pkg, String className,
                                          SequencedMap<String, FieldDef> fields,
                                          List<SequencedMap<String, FieldDef>> olderFieldSets) {
-        boolean needsInstant = fields.values().stream().anyMatch(f -> "Instant".equals(f.javaType()));
-        boolean needsJsonNode = fields.values().stream().anyMatch(f -> "JsonNode".equals(f.javaType())
-                || (f.nestedFields() == null && "JsonNode".equals(f.javaType())));
-        boolean needsJsonProperty = fields.values().stream().anyMatch(FieldDef::needsJsonProperty);
+        // Imports must cover fields at any nesting depth, not only the top level
+        List<FieldDef> allFields = flatten(fields);
+        boolean needsInstant = allFields.stream().anyMatch(f -> "Instant".equals(f.javaType()));
+        boolean needsJsonNode = allFields.stream().anyMatch(f -> "JsonNode".equals(f.javaType()));
+        boolean needsJsonProperty = allFields.stream().anyMatch(FieldDef::needsJsonProperty);
         boolean hasNestedObjects = fields.values().stream().anyMatch(FieldDef::isNested);
-        // nested records also need @JsonProperty for their parent field
-        needsJsonProperty = needsJsonProperty || hasNestedObjects && fields.values().stream()
-                .filter(FieldDef::isNested).anyMatch(FieldDef::needsJsonProperty);
 
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
@@ -182,25 +180,7 @@ public class JavaBeanGenerator {
 
         // Nested record classes
         if (hasNestedObjects) {
-            for (FieldDef f : fieldList) {
-                if (f.isNested()) {
-                    sb.append("\n    public record ").append(f.typeName()).append("(\n");
-                    List<FieldDef> subList = new ArrayList<>(f.nestedFields().values());
-                    for (int i = 0; i < subList.size(); i++) {
-                        FieldDef sf = subList.get(i);
-                        sb.append("        ");
-                        if (sf.needsJsonProperty()) {
-                            sb.append("@JsonProperty(\"").append(sf.jsonName()).append("\") ");
-                        }
-                        sb.append(sf.typeName()).append(" ").append(sf.javaName());
-                        if (i < subList.size() - 1) {
-                            sb.append(",");
-                        }
-                        sb.append("\n");
-                    }
-                    sb.append("    ) {}\n");
-                }
-            }
+            appendNestedRecords(sb, fieldList, "    ");
         }
 
         // Compat constructors
@@ -225,6 +205,53 @@ public class JavaBeanGenerator {
 
         sb.append("}\n");
         return sb.toString();
+    }
+
+    /**
+     * Emits one record declaration per object/nested field, recursing into sub-objects so that
+     * object types at any depth of the mapping have a corresponding record. A sub-record is declared
+     * inside its parent record, which keeps its simple name resolvable there and avoids clashes
+     * between equally named sub-objects of different parents.
+     */
+    private void appendNestedRecords(StringBuilder sb, List<FieldDef> fieldList, String indent) {
+        for (FieldDef f : fieldList) {
+            if (!f.isNested()) {
+                continue;
+            }
+            sb.append("\n").append(indent).append("public record ").append(f.typeName()).append("(\n");
+            List<FieldDef> subList = new ArrayList<>(f.nestedFields().values());
+            for (int i = 0; i < subList.size(); i++) {
+                FieldDef sf = subList.get(i);
+                sb.append(indent).append("    ");
+                if (sf.needsJsonProperty()) {
+                    sb.append("@JsonProperty(\"").append(sf.jsonName()).append("\") ");
+                }
+                sb.append(sf.typeName()).append(" ").append(sf.javaName());
+                if (i < subList.size() - 1) {
+                    sb.append(",");
+                }
+                sb.append("\n");
+            }
+            sb.append(indent).append(")");
+            if (subList.stream().anyMatch(FieldDef::isNested)) {
+                sb.append(" {\n");
+                appendNestedRecords(sb, subList, indent + "    ");
+                sb.append(indent).append("}\n");
+            } else {
+                sb.append(" {}\n");
+            }
+        }
+    }
+
+    private List<FieldDef> flatten(SequencedMap<String, FieldDef> fields) {
+        List<FieldDef> all = new ArrayList<>();
+        for (FieldDef f : fields.values()) {
+            all.add(f);
+            if (f.isNested()) {
+                all.addAll(flatten(f.nestedFields()));
+            }
+        }
+        return all;
     }
 
     // -------------------------------------------------------------------------

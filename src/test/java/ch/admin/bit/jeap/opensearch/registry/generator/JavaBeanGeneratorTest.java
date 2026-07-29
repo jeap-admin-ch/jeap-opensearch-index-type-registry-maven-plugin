@@ -239,6 +239,67 @@ class JavaBeanGeneratorTest {
         assertThat(source).contains("null)");
     }
 
+    @Test
+    void generatesRecordsForObjectsNestedMoreThanOneLevelDeep(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", DEEPLY_NESTED_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String expected = """
+                package ch.admin.bit.test.index.jme.decreedocument;
+
+                import com.fasterxml.jackson.annotation.JsonProperty;
+                import java.time.Instant;
+
+                public record JmeDecreeDocumentDataV1(
+                    Cases cases
+                ) {
+
+                    public record Cases(
+                        String status,
+                        @JsonProperty("control_pattern") ControlPattern controlPattern
+                    ) {
+
+                        public record ControlPattern(
+                            @JsonProperty("factual_name") String factualName,
+                            Instant decided
+                        ) {}
+                    }
+                }
+                """;
+        assertThat(readSource(outputDir, "JmeDecreeDocumentDataV1.java")).isEqualTo(expected);
+    }
+
+    private static final String DEEPLY_NESTED_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "cases": {
+                        "type": "nested",
+                        "properties": {
+                          "status": { "type": "keyword" },
+                          "control_pattern": {
+                            "type": "object",
+                            "properties": {
+                              "factual_name": { "type": "text" },
+                              "decided": { "type": "date" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private String generate(JavaBeanGenerator generator, String typeName, String system,
