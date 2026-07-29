@@ -272,6 +272,292 @@ class JavaBeanGeneratorTest {
         assertThat(readSource(outputDir, "JmeDecreeDocumentDataV1.java")).isEqualTo(expected);
     }
 
+    @Test
+    void generatesRecordsAtThirdLevelOfNesting(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", THREE_LEVEL_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String expected = """
+                package ch.admin.bit.test.index.jme.decreedocument;
+
+                import com.fasterxml.jackson.annotation.JsonProperty;
+
+                public record JmeDecreeDocumentDataV1(
+                    @JsonProperty("level_one") LevelOne levelOne
+                ) {
+
+                    public record LevelOne(
+                        @JsonProperty("level_two") LevelTwo levelTwo
+                    ) {
+
+                        public record LevelTwo(
+                            @JsonProperty("level_three") LevelThree levelThree
+                        ) {
+
+                            public record LevelThree(
+                                String value
+                            ) {}
+                        }
+                    }
+                }
+                """;
+        assertThat(readSource(outputDir, "JmeDecreeDocumentDataV1.java")).isEqualTo(expected);
+    }
+
+    @Test
+    void importsAreDerivedFromNestedFieldsAndNotOnlyFromTopLevelFields(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        // No top-level field needs @JsonProperty, Instant or JsonNode — all three are only required
+        // by fields two levels down, so an import scan limited to the top level would miss them.
+        File v10 = writeMappingFile(mappingDir, "mapping.json", IMPORTS_ONLY_NEEDED_DEEP_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("import com.fasterxml.jackson.annotation.JsonProperty;");
+        assertThat(source).contains("import tools.jackson.databind.JsonNode;");
+        assertThat(source).contains("import java.time.Instant;");
+        assertThat(source).contains("@JsonProperty(\"created_at\") Instant createdAt");
+        assertThat(source).contains("JsonNode raw");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void generatedSourcesCompileForMappingWithSiblingNestedObjects(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        // Mirrors the shape of DaziT TariffaProduct v2: two sibling `nested` fields, each holding a
+        // sub-object. Regression test for the deploy-time compilation failure of TariffaProductDataV2.
+        File v20 = writeMappingFile(mappingDir, "mapping.json", TARIFFA_SHAPED_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "TariffaProduct", "Tariffa", 2, 0, List.of(v20));
+
+        String source = Files.readString(
+                sourceFile(outputDir, "Tariffa", "TariffaProduct", "TariffaProductDataV2.java").toPath());
+        assertThat(source).contains("public record Ingredient(");
+        assertThat(source).contains("public record ControlPattern(");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void generatedSourcesCompileWhenDifferentParentsHaveEquallyNamedSubObjects(
+            @TempDir File outputDir, @TempDir File mappingDir) throws IOException, MojoExecutionException {
+        // Both `first` and `second` contain a `detail` object. Emitting both Detail records as
+        // siblings of the data record would be a duplicate class declaration.
+        File v10 = writeMappingFile(mappingDir, "mapping.json", EQUAL_SUB_OBJECT_NAMES_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("String name");
+        assertThat(source).contains("String code");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void generatedSourcesCompileForMappingWithoutNestedObjects(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "JmeDecreeDocument_mapping_v1_0.json",
+                TestRegistryBuilder.VALID_MAPPING_V1_0);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void compatConstructorDelegatesUsingNestedRecordTypes(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping_v1_0.json", DEEPLY_NESTED_MAPPING);
+        File v11 = writeMappingFile(mappingDir, "mapping_v1_1.json", DEEPLY_NESTED_MAPPING_V1_1_ADDS_FIELD);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 1, List.of(v10, v11));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        // The compat constructor takes the v1.0 field set and passes null for the field added in v1.1
+        assertThat(source).contains("""
+                    public JmeDecreeDocumentDataV1(
+                        Cases cases
+                    ) {
+                        this(cases, null);
+                    }
+                """);
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    private static final String THREE_LEVEL_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "level_one": {
+                        "type": "object",
+                        "properties": {
+                          "level_two": {
+                            "type": "object",
+                            "properties": {
+                              "level_three": {
+                                "type": "object",
+                                "properties": {
+                                  "value": { "type": "keyword" }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String IMPORTS_ONLY_NEEDED_DEEP_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "wrapper": {
+                        "type": "object",
+                        "properties": {
+                          "inner": {
+                            "type": "object",
+                            "properties": {
+                              "created_at": { "type": "date" },
+                              "raw": { "type": "object", "enabled": false }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String TARIFFA_SHAPED_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "case_reference": { "type": "keyword" },
+                      "compositions": {
+                        "type": "nested",
+                        "properties": {
+                          "ingredient": {
+                            "type": "object",
+                            "properties": {
+                              "name": { "type": "text" }
+                            }
+                          },
+                          "proportion": { "type": "double" },
+                          "unit": { "type": "keyword" }
+                        }
+                      },
+                      "cases": {
+                        "type": "nested",
+                        "properties": {
+                          "case_reference": { "type": "keyword" },
+                          "control_pattern": {
+                            "type": "object",
+                            "properties": {
+                              "factual_name": { "type": "text" },
+                              "decided": { "type": "date" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String EQUAL_SUB_OBJECT_NAMES_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "first": {
+                        "type": "object",
+                        "properties": {
+                          "detail": {
+                            "type": "object",
+                            "properties": {
+                              "name": { "type": "text" }
+                            }
+                          }
+                        }
+                      },
+                      "second": {
+                        "type": "nested",
+                        "properties": {
+                          "detail": {
+                            "type": "object",
+                            "properties": {
+                              "code": { "type": "keyword" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String DEEPLY_NESTED_MAPPING_V1_1_ADDS_FIELD = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "cases": {
+                        "type": "nested",
+                        "properties": {
+                          "status": { "type": "keyword" },
+                          "control_pattern": {
+                            "type": "object",
+                            "properties": {
+                              "factual_name": { "type": "text" },
+                              "decided": { "type": "date" }
+                            }
+                          }
+                        }
+                      },
+                      "remark": { "type": "text" }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
     private static final String DEEPLY_NESTED_MAPPING = """
             {
               "mappings": {
@@ -326,5 +612,9 @@ class JavaBeanGeneratorTest {
 
     private String readSource(File outputDir, String filename) throws IOException {
         return Files.readString(sourceFile(outputDir, filename).toPath());
+    }
+
+    private List<String> compile(File outputDir) {
+        return GeneratedSourceCompiler.compile(outputDir);
     }
 }
