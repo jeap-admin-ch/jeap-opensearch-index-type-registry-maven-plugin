@@ -41,10 +41,10 @@
         <maven-invoker.version>3.3.0</maven-invoker.version>
         <maven.api.version>3.9.16</maven.api.version>
         <maven-plugin-plugin.version>3.15.2</maven-plugin-plugin.version>
-        <maven-plugin-testing-harness.version>3.5.0</maven-plugin-testing-harness.version>
+        <maven-plugin-testing-harness.version>3.5.1</maven-plugin-testing-harness.version>
         <plexus-xml.version>4.1.1</plexus-xml.version>
-        <org.eclipse.jgit.version>7.3.0.202506031305-r</org.eclipse.jgit.version>
-        <json-schema-validator.version>3.0.3</json-schema-validator.version>
+        <org.eclipse.jgit.version>7.7.1.202607240634-r</org.eclipse.jgit.version>
+        <json-schema-validator.version>3.0.6</json-schema-validator.version>
     </properties>
 
     <dependencyManagement>
