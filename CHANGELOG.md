@@ -8,11 +8,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [2.4.0] - 2026-08-10
 
 ### Changed
-
 - Update parent from 8.7.0 to 8.7.1
 - update maven-plugin-testing-harness from 3.5.0 to 3.5.1
 - update org.eclipse.jgit from 7.3.0.202506031305-r to 7.7.1.202607240634-r
 - update json-schema-validator from 3.0.3 to 3.0.6
+- update jeap-opensearch-index-type from 1.15.0 to 1.16.0
 
 ## [2.3.0] - 2026-08-08
 
