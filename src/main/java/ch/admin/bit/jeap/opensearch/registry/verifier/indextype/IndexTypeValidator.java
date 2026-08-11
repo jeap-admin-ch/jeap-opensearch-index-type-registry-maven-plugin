@@ -123,6 +123,7 @@ public class IndexTypeValidator {
                     validateMappingFileExists(mappingFile),
                     validateMappingFileName(mappingFile, major, minor),
                     IndexTypeMappingSchemaValidator.validate(validationContext, mappingFile),
+                    MappingCollectionFieldsValidator.validate(mappingFile),
                     MappingDataFieldNamingValidator.validate(mappingFile));
 
             versionRefs.add(new MappingVersionCompatibilityValidator.MappingVersionRef(major, minor, mappingDefinition));

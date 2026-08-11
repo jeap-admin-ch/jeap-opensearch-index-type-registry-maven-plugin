@@ -197,6 +197,25 @@ class IndexTypeMappingSchemaValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("Cannot read"));
     }
 
+    @Test
+    void collectionFieldsMustBeUniqueSnakeCasePaths(@TempDir File dir) throws IOException {
+        String mappingJson = TestRegistryBuilder.VALID_MAPPING_V1_0.replace(
+                "\"dynamic\": false,", """
+                        "dynamic": false,
+                        "_meta": {
+                          "jeap": {
+                            "collection_fields": ["documentId", "documentId"]
+                          }
+                        },
+                        """);
+        File mapping = write(dir, "mapping.json", mappingJson);
+
+        ValidationResult result = validate(dir, mapping);
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("regex pattern") && e.contains("unique items"));
+    }
+
     private ValidationResult validate(File dir, File mappingFile) {
         ValidationContext ctx = ValidationContext.builder()
                 .descriptorDir(dir)

@@ -9,7 +9,11 @@ three required top-level sections.
 {
   "mappings": {
     "dynamic": false,
-    "_meta": { "schema_version": 0 },
+    "_meta": {
+      "jeap": {
+        "collection_fields": ["keywords"]
+      }
+    },
     "properties": {
       "search_item": { ... },
       "origin":      { ... },
@@ -27,6 +31,34 @@ responsibilities of the index writer service and the domain service:
 | `search_item` | jEAP Index Writer | Indexing metadata: write timestamp, major and minor version.          |
 | `origin`      | jEAP Index Writer | Reference back to the source business object.                         |
 | `data`        | Domain service    | Application-defined business fields — this section is mapped to Java. |
+
+## Collection fields
+
+OpenSearch has no separate array mapping type: the same field mapping accepts either one value or
+an array. Use `mappings._meta.jeap.collection_fields` to declare fields that the plugin must generate
+as `java.util.List<T>`:
+
+```json
+"_meta": {
+  "jeap": {
+    "collection_fields": [
+      "keywords",
+      "details.codes",
+      "cases.tags"
+    ]
+  }
+}
+```
+
+Paths are relative to `data.properties`, use the JSON snake_case field names, and descend through
+`properties`. A parent collection does not change the cardinality of its children: `cases` and
+`cases.tags` describe two independent collection fields.
+
+Fields mapped as `nested` are collections by default and do not need to be listed. All other fields
+are single-valued unless listed in `collection_fields`. The declaration controls the generated Java
+type only; OpenSearch mapping and query semantics remain defined by each field's `type`.
+
+Requiredness, null checks, and non-empty collection checks are not expressed by this metadata.
 
 ## search_item section (fixed)
 
@@ -104,6 +136,9 @@ any nesting depth.
 | `object` with sub-`properties`                    | Generated inner record         |
 | `nested` with no sub-`properties`                 | `List<JsonNode>`               |
 | `nested` with sub-`properties`                    | `List<generated inner record>` |
+
+Any non-`nested` type in `collection_fields` is wrapped in `List`, for example `keyword` becomes
+`List<String>` and `object` with sub-properties becomes `List<generated inner record>`.
 
 Fields whose JSON name differs from the Java identifier convention get a `@JsonProperty` annotation.
 For example, `document_id` → `@JsonProperty("document_id") String documentId`.

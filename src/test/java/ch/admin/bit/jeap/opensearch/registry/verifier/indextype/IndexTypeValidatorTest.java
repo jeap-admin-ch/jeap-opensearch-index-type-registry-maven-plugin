@@ -231,6 +231,45 @@ class IndexTypeValidatorTest {
     }
 
     @Test
+    void collectionFieldPathMustResolveToDataProperty(@TempDir File tempDir) throws IOException {
+        String mapping = TestRegistryBuilder.VALID_MAPPING_V1_0.replace(
+                "\"dynamic\": false,", """
+                        "dynamic": false,
+                        "_meta": { "jeap": { "collection_fields": ["missing.path"] } },
+                        """);
+        File typeDir = typeDir(tempDir);
+        writeDescriptor(typeDir, INDEX_TYPE_NAME, TestRegistryBuilder.VALID_DESCRIPTOR);
+        writeMapping(typeDir, INDEX_TYPE_NAME, 1, 0, mapping);
+
+        ValidationResult result = validate(tempDir, INDEX_TYPE_NAME);
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("missing.path") && e.contains("does not resolve"));
+    }
+
+    @Test
+    void collectionFieldPathCannotDescendThroughScalarProperty(@TempDir File tempDir) throws IOException {
+        String mapping = TestRegistryBuilder.VALID_MAPPING_V1_0
+                .replace("\"dynamic\": false,", """
+                        "dynamic": false,
+                        "_meta": { "jeap": { "collection_fields": ["document_id.child"] } },
+                        """)
+                .replace("\"document_id\": { \"type\": \"keyword\" }", """
+                        "document_id": {
+                          "type": "keyword",
+                          "properties": { "child": { "type": "keyword" } }
+                        }""");
+        File typeDir = typeDir(tempDir);
+        writeDescriptor(typeDir, INDEX_TYPE_NAME, TestRegistryBuilder.VALID_DESCRIPTOR);
+        writeMapping(typeDir, INDEX_TYPE_NAME, 1, 0, mapping);
+
+        ValidationResult result = validate(tempDir, INDEX_TYPE_NAME);
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("document_id.child") && e.contains("does not resolve"));
+    }
+
+    @Test
     void rolesUnchangedPassesValidation(@TempDir File newDir, @TempDir File oldDir) throws IOException {
         writeOldDescriptor(newDir, INDEX_TYPE_NAME, TestRegistryBuilder.VALID_DESCRIPTOR);
         writeOldMapping(newDir, INDEX_TYPE_NAME, 1, 0, TestRegistryBuilder.VALID_MAPPING_V1_0);

@@ -56,6 +56,23 @@ public record JmeDecreeDocumentDataV1(
 }
 ```
 
+Fields declared in `mappings._meta.jeap.collection_fields` are generated as lists at any nesting
+depth. Fields mapped as `nested` are lists by default:
+
+```java
+public record ProductDataV1(
+    List<String> keywords,
+    Details details,
+    List<Cases> cases
+) {
+    public record Details(List<String> codes) {}
+    public record Cases(List<String> tags) {}
+}
+```
+
+The generated class embodies the collection contract. No separate cardinality information is added
+to `META-INF/index-types.json`.
+
 ### IndexType singleton
 
 ```java

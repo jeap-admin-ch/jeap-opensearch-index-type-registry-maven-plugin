@@ -398,6 +398,30 @@ class JavaBeanGeneratorTest {
     }
 
     @Test
+    void compatConstructorGeneratedWhenFieldAddedInsideNestedRecord(
+            @TempDir File outputDir, @TempDir File mappingDir) throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping_v1_0.json", DEEPLY_NESTED_MAPPING);
+        File v11 = writeMappingFile(mappingDir, "mapping_v1_1.json", DEEPLY_NESTED_MAPPING.replace(
+                "\"status\": { \"type\": \"keyword\" },", """
+                        "status": { "type": "keyword" },
+                        "reviewer": { "type": "keyword" },"""));
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 1, List.of(v10, v11));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("""
+                        public Cases(
+                            String status,
+                            ControlPattern controlPattern
+                        ) {
+                            this(status, null, controlPattern);
+                        }
+                """);
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
     void nestedFieldIsGeneratedAsListAndObjectFieldIsNot(@TempDir File outputDir, @TempDir File mappingDir)
             throws IOException, MojoExecutionException {
         File v10 = writeMappingFile(mappingDir, "mapping.json", NESTED_AND_OBJECT_MAPPING);
@@ -517,6 +541,51 @@ class JavaBeanGeneratorTest {
         }
     }
 
+    @Test
+    void collectionFieldsGenerateListsAtAnyDepth(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", COLLECTION_FIELDS_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("List<String> keywords");
+        assertThat(source).contains("List<String> codes");
+        assertThat(source).contains("List<Cases> cases");
+        assertThat(source).contains("List<String> tags");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void generatedRecordDeserializesDeclaredCollectionFields(@TempDir File outputDir, @TempDir File mappingDir)
+            throws Exception {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", COLLECTION_FIELDS_MAPPING);
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        GeneratedSourceCompiler.Result compiled = GeneratedSourceCompiler.compileToClasses(outputDir);
+        assertThat(compiled.errors()).isEmpty();
+
+        String json = """
+                {
+                  "keywords": ["one", "two"],
+                  "details": { "codes": ["A", "B"] },
+                  "cases": [{ "tags": ["x", "y"] }]
+                }
+                """;
+
+        try (URLClassLoader classLoader = new URLClassLoader(
+                new URL[]{compiled.classOutput().toUri().toURL()}, getClass().getClassLoader())) {
+            Class<?> dataClass = classLoader.loadClass(BASE_PACKAGE + ".jme.decreedocument.JmeDecreeDocumentDataV1");
+            Object data = JsonMapper.builder().build().readValue(json, dataClass);
+
+            assertThat(dataClass.getMethod("keywords").invoke(data)).isEqualTo(List.of("one", "two"));
+            Object details = dataClass.getMethod("details").invoke(data);
+            assertThat(details.getClass().getMethod("codes").invoke(details)).isEqualTo(List.of("A", "B"));
+        }
+    }
+
     private static final String NESTED_AND_OBJECT_MAPPING = """
             {
               "mappings": {
@@ -535,6 +604,39 @@ class JavaBeanGeneratorTest {
                         "type": "nested",
                         "properties": {
                           "name": { "type": "text" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String COLLECTION_FIELDS_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "_meta": {
+                  "jeap": {
+                    "collection_fields": ["keywords", "details.codes", "cases.tags"]
+                  }
+                },
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "keywords": { "type": "keyword" },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "codes": { "type": "keyword" }
+                        }
+                      },
+                      "cases": {
+                        "type": "nested",
+                        "properties": {
+                          "tags": { "type": "keyword" }
                         }
                       }
                     }

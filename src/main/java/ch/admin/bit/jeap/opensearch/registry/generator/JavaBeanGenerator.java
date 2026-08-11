@@ -1,5 +1,6 @@
 package ch.admin.bit.jeap.opensearch.registry.generator;
 
+import ch.admin.bit.jeap.opensearch.registry.MappingDataFieldModel;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
 import tools.jackson.core.exc.JacksonIOException;
@@ -55,7 +56,8 @@ public class JavaBeanGenerator {
         }
 
         JsonNode dataProperties = latestMapping.path("mappings").path("properties").path("data").path("properties");
-        SequencedMap<String, FieldDef> latestFields = extractFields(dataProperties, "");
+        Set<String> collectionFields = MappingDataFieldModel.from(latestMapping).declaredCollectionFields();
+        SequencedMap<String, FieldDef> latestFields = extractFields(dataProperties, "", collectionFields);
 
         List<SequencedMap<String, FieldDef>> olderFieldSets = collectOlderFieldSets(allMinorMappingsForMajor, latestFields);
 
@@ -76,7 +78,8 @@ public class JavaBeanGenerator {
     // Field extraction
     // -------------------------------------------------------------------------
 
-    private SequencedMap<String, FieldDef> extractFields(JsonNode propertiesNode, String pathPrefix) {
+    private SequencedMap<String, FieldDef> extractFields(JsonNode propertiesNode, String pathPrefix,
+                                                         Set<String> collectionFields) {
         SequencedMap<String, FieldDef> fields = new LinkedHashMap<>();
         if (propertiesNode == null || propertiesNode.isMissingNode() || !propertiesNode.isObject()) {
             return fields;
@@ -85,20 +88,20 @@ public class JavaBeanGenerator {
             String jsonName = entry.getKey();
             String javaName = OpenSearchTypeMapper.toCamelCase(jsonName);
             String osType = entry.getValue().path("type").asString("object");
+            String fieldPath = pathPrefix.isEmpty() ? jsonName : pathPrefix + "." + jsonName;
+            boolean collection = "nested".equals(osType) || collectionFields.contains(fieldPath);
 
             if ("object".equals(osType) || "nested".equals(osType)) {
-                // An OpenSearch 'nested' field holds an array of objects, an 'object' field a single one
-                boolean collection = "nested".equals(osType);
                 JsonNode nestedProps = entry.getValue().path("properties");
                 if (!nestedProps.isMissingNode()) {
-                    SequencedMap<String, FieldDef> subFields = extractFields(nestedProps, javaName);
+                    SequencedMap<String, FieldDef> subFields = extractFields(nestedProps, fieldPath, collectionFields);
                     fields.put(jsonName, new FieldDef(jsonName, javaName, null, subFields, collection));
                 } else {
                     fields.put(jsonName, new FieldDef(jsonName, javaName, "JsonNode", null, collection));
                 }
             } else {
                 String javaType = simplifyType(OpenSearchTypeMapper.toJavaType(osType));
-                fields.put(jsonName, new FieldDef(jsonName, javaName, javaType, null, false));
+                fields.put(jsonName, new FieldDef(jsonName, javaName, javaType, null, collection));
             }
         }
         return fields;
@@ -122,10 +125,11 @@ public class JavaBeanGenerator {
             try {
                 JsonNode mapping = JSON_MAPPER.readTree(f);
                 JsonNode dataProps = mapping.path("mappings").path("properties").path("data").path("properties");
-                SequencedMap<String, FieldDef> fields = extractFields(dataProps, "");
-                if (!fields.keySet().equals(latestFields.keySet())) {
+                Set<String> collectionFields = MappingDataFieldModel.from(mapping).declaredCollectionFields();
+                SequencedMap<String, FieldDef> fields = extractFields(dataProps, "", collectionFields);
+                if (!fields.equals(latestFields)) {
                     // Only add if not already represented
-                    boolean duplicate = result.stream().anyMatch(r -> r.keySet().equals(fields.keySet()));
+                    boolean duplicate = result.stream().anyMatch(fields::equals);
                     if (!duplicate) {
                         result.add(fields);
                     }
@@ -174,7 +178,9 @@ public class JavaBeanGenerator {
         }
         sb.append(")");
 
-        boolean hasBody = !olderFieldSets.isEmpty() || hasNestedObjects;
+        List<SequencedMap<String, FieldDef>> compatibleTopLevelFieldSets =
+                fieldSetsWithDifferentKeys(fields, olderFieldSets);
+        boolean hasBody = !compatibleTopLevelFieldSets.isEmpty() || hasNestedObjects;
         if (!hasBody) {
             sb.append(" {}\n");
             return sb.toString();
@@ -184,28 +190,11 @@ public class JavaBeanGenerator {
 
         // Nested record classes
         if (hasNestedObjects) {
-            appendNestedRecords(sb, fieldList, "    ");
+            appendNestedRecords(sb, fieldList, olderFieldSets, "    ");
         }
 
         // Compat constructors
-        for (SequencedMap<String, FieldDef> olderFields : olderFieldSets) {
-            List<FieldDef> olderList = new ArrayList<>(olderFields.values());
-            sb.append("\n    public ").append(className).append("(\n");
-            for (int i = 0; i < olderList.size(); i++) {
-                FieldDef f = olderList.get(i);
-                sb.append("        ").append(f.typeName()).append(" ").append(f.javaName());
-                if (i < olderList.size() - 1) sb.append(",");
-                sb.append("\n");
-            }
-            sb.append("    ) {\n        this(");
-            for (int i = 0; i < fieldList.size(); i++) {
-                FieldDef f = fieldList.get(i);
-                boolean presentInOlder = olderFields.containsKey(f.jsonName());
-                sb.append(presentInOlder ? f.javaName() : "null");
-                if (i < fieldList.size() - 1) sb.append(", ");
-            }
-            sb.append(");\n    }\n");
-        }
+        appendCompatibilityConstructors(sb, className, fieldList, compatibleTopLevelFieldSets, "    ");
 
         sb.append("}\n");
         return sb.toString();
@@ -217,11 +206,20 @@ public class JavaBeanGenerator {
      * inside its parent record, which keeps its simple name resolvable there and avoids clashes
      * between equally named sub-objects of different parents.
      */
-    private void appendNestedRecords(StringBuilder sb, List<FieldDef> fieldList, String indent) {
+    private void appendNestedRecords(StringBuilder sb, List<FieldDef> fieldList,
+                                     List<SequencedMap<String, FieldDef>> olderFieldSets, String indent) {
         for (FieldDef f : fieldList) {
             if (!f.isNested()) {
                 continue;
             }
+            List<SequencedMap<String, FieldDef>> olderNestedFieldSets = olderFieldSets.stream()
+                    .map(fields -> fields.get(f.jsonName()))
+                    .filter(Objects::nonNull)
+                    .filter(FieldDef::isNested)
+                    .map(FieldDef::nestedFields)
+                    .toList();
+            List<SequencedMap<String, FieldDef>> compatibleNestedFieldSets =
+                    fieldSetsWithDifferentKeys(f.nestedFields(), olderNestedFieldSets);
             sb.append("\n").append(indent).append("public record ").append(f.recordName()).append("(\n");
             List<FieldDef> subList = new ArrayList<>(f.nestedFields().values());
             for (int i = 0; i < subList.size(); i++) {
@@ -237,13 +235,51 @@ public class JavaBeanGenerator {
                 sb.append("\n");
             }
             sb.append(indent).append(")");
-            if (subList.stream().anyMatch(FieldDef::isNested)) {
+            if (subList.stream().anyMatch(FieldDef::isNested) || !compatibleNestedFieldSets.isEmpty()) {
                 sb.append(" {\n");
-                appendNestedRecords(sb, subList, indent + "    ");
+                appendNestedRecords(sb, subList, olderNestedFieldSets, indent + "    ");
+                appendCompatibilityConstructors(
+                        sb, f.recordName(), subList, compatibleNestedFieldSets, indent + "    ");
                 sb.append(indent).append("}\n");
             } else {
                 sb.append(" {}\n");
             }
+        }
+    }
+
+    private List<SequencedMap<String, FieldDef>> fieldSetsWithDifferentKeys(
+            SequencedMap<String, FieldDef> latestFields,
+            List<SequencedMap<String, FieldDef>> olderFieldSets) {
+        List<SequencedMap<String, FieldDef>> result = new ArrayList<>();
+        for (SequencedMap<String, FieldDef> fields : olderFieldSets) {
+            if (!fields.keySet().equals(latestFields.keySet())
+                    && result.stream().noneMatch(existing -> existing.keySet().equals(fields.keySet()))) {
+                result.add(fields);
+            }
+        }
+        return result;
+    }
+
+    private void appendCompatibilityConstructors(StringBuilder sb, String recordName,
+                                                 List<FieldDef> latestFields,
+                                                 List<SequencedMap<String, FieldDef>> olderFieldSets,
+                                                 String indent) {
+        for (SequencedMap<String, FieldDef> olderFields : olderFieldSets) {
+            List<FieldDef> olderList = new ArrayList<>(olderFields.values());
+            sb.append("\n").append(indent).append("public ").append(recordName).append("(\n");
+            for (int i = 0; i < olderList.size(); i++) {
+                FieldDef f = olderList.get(i);
+                sb.append(indent).append("    ").append(f.typeName()).append(" ").append(f.javaName());
+                if (i < olderList.size() - 1) sb.append(",");
+                sb.append("\n");
+            }
+            sb.append(indent).append(") {\n").append(indent).append("    this(");
+            for (int i = 0; i < latestFields.size(); i++) {
+                FieldDef f = latestFields.get(i);
+                sb.append(olderFields.containsKey(f.jsonName()) ? f.javaName() : "null");
+                if (i < latestFields.size() - 1) sb.append(", ");
+            }
+            sb.append(");\n").append(indent).append("}\n");
         }
     }
 
@@ -353,7 +389,7 @@ public class JavaBeanGenerator {
 
         /**
          * Type of the record component for this field, wrapped in {@code List} if the mapping
-         * declares the field as {@code nested}.
+         * declares the field as a collection.
          */
         String typeName() {
             String elementType = isNested() ? recordName() : javaType;

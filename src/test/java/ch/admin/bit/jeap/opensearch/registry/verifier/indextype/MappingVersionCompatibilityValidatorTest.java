@@ -112,6 +112,53 @@ class MappingVersionCompatibilityValidatorTest {
         assertThat(result.isValid()).isTrue();
     }
 
+    @Test
+    void existingFieldCannotBecomeACollectionInMinorVersion(@TempDir File dir) throws IOException {
+        String previous = mappingWithDataProperties("\"keywords\": { \"type\": \"keyword\" }");
+        String current = withCollectionFields(previous, "keywords");
+        write(dir, "Foo_mapping_v1_0.json", previous);
+        write(dir, "Foo_mapping_v1_1.json", current);
+
+        ValidationResult result = validate(dir, "Foo", List.of(
+                ref(1, 0, "Foo_mapping_v1_0.json"),
+                ref(1, 1, "Foo_mapping_v1_1.json")));
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("keywords") && e.contains("cardinality"));
+    }
+
+    @Test
+    void existingFieldTypeCannotChangeInMinorVersion(@TempDir File dir) throws IOException {
+        write(dir, "Foo_mapping_v1_0.json", mappingWithDataProperties("\"name\": { \"type\": \"keyword\" }"));
+        write(dir, "Foo_mapping_v1_1.json", mappingWithDataProperties("\"name\": { \"type\": \"text\" }"));
+
+        ValidationResult result = validate(dir, "Foo", List.of(
+                ref(1, 0, "Foo_mapping_v1_0.json"),
+                ref(1, 1, "Foo_mapping_v1_1.json")));
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("name") && e.contains("type"));
+    }
+
+    @Test
+    void existingFieldsCannotBeReorderedInMinorVersion(@TempDir File dir) throws IOException {
+        write(dir, "Foo_mapping_v1_0.json", mappingWithDataProperties("""
+                "first": { "type": "keyword" },
+                "second": { "type": "keyword" }
+                """));
+        write(dir, "Foo_mapping_v1_1.json", mappingWithDataProperties("""
+                "second": { "type": "keyword" },
+                "first": { "type": "keyword" }
+                """));
+
+        ValidationResult result = validate(dir, "Foo", List.of(
+                ref(1, 0, "Foo_mapping_v1_0.json"),
+                ref(1, 1, "Foo_mapping_v1_1.json")));
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("reordered"));
+    }
+
     private ValidationResult validate(File dir, String typeName,
                                        List<MappingVersionCompatibilityValidator.MappingVersionRef> versions) {
         return MappingVersionCompatibilityValidator.validate(dir, typeName, versions);
@@ -144,5 +191,15 @@ class MappingVersionCompatibilityValidatorTest {
                   }
                 }
                 """.formatted(dataProps);
+    }
+
+    private String withCollectionFields(String mapping, String... paths) {
+        String values = java.util.Arrays.stream(paths)
+                .map(path -> "\"" + path + "\"")
+                .collect(java.util.stream.Collectors.joining(", "));
+        return mapping.replace("\"dynamic\": false,", """
+                "dynamic": false,
+                "_meta": { "jeap": { "collection_fields": [%s] } },
+                """.formatted(values).stripTrailing());
     }
 }

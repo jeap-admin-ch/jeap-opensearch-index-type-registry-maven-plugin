@@ -21,6 +21,8 @@ descriptive error message.
 | Every mapping file is validated against `IndexTypeMappingDescriptor.schema.json` | Incorrect `search_item` or `origin` sections fail the build.            |
 | All field names in `data.properties` (recursively) must be snake_case            | Pattern: `[a-z][a-z0-9]*(_[a-z0-9]+)*`. camelCase names fail the build. |
 | `dynamic: false` must be set                                                     | Required in all mapping files.                                          |
+| `collection_fields` entries must be unique dotted snake_case paths               | Paths are relative to `data.properties`.                                |
+| Every `collection_fields` path must resolve to a generated data property          | Unknown paths and OpenSearch multi-fields fail the build.                |
 
 The snake_case rule is strictly enforced because the index writer service serialises documents
 using `PropertyNamingStrategies.SNAKE_CASE`. A camelCase field in the mapping would never match
@@ -44,8 +46,10 @@ mvn verify -Dindextype.git.url=
 
 ## Minor version backward compatibility
 
-Within the same major version, each successive minor version may only **add** properties to the
-`data` section — never remove them. This is checked for every adjacent minor version pair
+Within the same major version, each successive minor version may only add properties to the
+`data` section. Existing properties cannot be removed or change their OpenSearch type or effective
+cardinality. Effective cardinality is a collection when the field is mapped as `nested` or listed in
+`collection_fields`. This is checked for every adjacent minor version pair
 (e.g. v1.0→v1.1, v1.1→v1.2):
 
 | Change                     | Allowed in minor version | Requires major version bump |
@@ -54,6 +58,10 @@ Within the same major version, each successive minor version may only **add** pr
 | Remove a field from `data` | No                       | Yes                         |
 | Rename a field in `data`   | No                       | Yes                         |
 | Change a field type        | No                       | Yes                         |
+| Add a new collection field | Yes                      | No                          |
+| Change single to collection| No                       | Yes                         |
+| Change collection to single| No                       | Yes                         |
+| Reorder existing fields     | No                       | Yes                         |
 
 ## Role changes
 
