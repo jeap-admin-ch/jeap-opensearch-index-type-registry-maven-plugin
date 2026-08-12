@@ -9,7 +9,12 @@ three required top-level sections.
 {
   "mappings": {
     "dynamic": false,
-    "_meta": { "schema_version": 0 },
+    "_meta": {
+      "schema_version": 0,
+      "jeap": {
+        "collection_fields": ["keywords"]
+      }
+    },
     "properties": {
       "search_item": { ... },
       "origin":      { ... },
@@ -27,6 +32,40 @@ responsibilities of the index writer service and the domain service:
 | `search_item` | jEAP Index Writer | Indexing metadata: write timestamp, major and minor version.          |
 | `origin`      | jEAP Index Writer | Reference back to the source business object.                         |
 | `data`        | Domain service    | Application-defined business fields — this section is mapped to Java. |
+
+## Collection fields
+
+OpenSearch has no separate array mapping type: the same field mapping accepts either one value or
+an array. Use `mappings._meta.jeap.collection_fields` to declare fields that the plugin must generate
+as `java.util.List<T>`:
+
+```json
+"_meta": {
+  "schema_version": 0,
+  "jeap": {
+    "collection_fields": [
+      "keywords",
+      "details.codes",
+      "cases.tags"
+    ]
+  }
+}
+```
+
+Paths are relative to `data.properties`, use the JSON snake_case field names, and descend through
+`properties`. A parent collection does not change the cardinality of its children: `cases` and
+`cases.tags` describe two independent collection fields.
+
+All fields, including fields mapped as `nested`, are single-valued unless listed in
+`collection_fields`. This allows a `nested` mapping to generate either a single record or a list of
+records. The declaration controls the generated Java type only; OpenSearch mapping and query
+semantics remain defined by each field's `type`.
+
+Declaring an `object` with sub-properties as a collection produces a build warning because
+OpenSearch flattens arrays of objects and loses correlation between sibling values. Use `nested`
+when that correlation must be preserved.
+
+Requiredness, null checks, and non-empty collection checks are not expressed by this metadata.
 
 ## search_item section (fixed)
 
@@ -102,19 +141,21 @@ any nesting depth.
 | `binary`                                          | `String`                       |
 | `object` with no sub-`properties`                 | `JsonNode`                     |
 | `object` with sub-`properties`                    | Generated inner record         |
-| `nested` with no sub-`properties`                 | `List<JsonNode>`               |
-| `nested` with sub-`properties`                    | `List<generated inner record>` |
+| `nested` with no sub-`properties`                 | `JsonNode`                     |
+| `nested` with sub-`properties`                    | Generated inner record         |
+
+Any type in `collection_fields` is wrapped in `List`, for example `keyword` becomes `List<String>`
+and `nested` with sub-properties becomes `List<generated inner record>`.
 
 Fields whose JSON name differs from the Java identifier convention get a `@JsonProperty` annotation.
 For example, `document_id` → `@JsonProperty("document_id") String documentId`.
 
 ### `object` versus `nested`
 
-Use `nested` when the field holds an **array** of objects whose sub-fields must stay correlated —
-that is what OpenSearch `nested` is for, and it is why the generator maps it to a `List`. Use
-`object` for a single object. Declaring `object` for a field that carries an array makes OpenSearch
-flatten the array and lose the correlation between sibling values, and the generated record will
-reject the payload.
+Use `nested` when object values must retain correlation between their sub-fields in OpenSearch.
+Cardinality is independent: list the path in `collection_fields` for an array, or omit it for one
+object. Declaring `object` for a field that carries an array makes OpenSearch flatten the array and
+lose correlation between sibling values; the plugin warns about this combination.
 
 ```json
 "cases": {

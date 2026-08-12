@@ -1,5 +1,7 @@
 package ch.admin.bit.jeap.opensearch.registry.verifier.indextype;
 
+import ch.admin.bit.jeap.opensearch.registry.MappingDataFieldModel;
+import ch.admin.bit.jeap.opensearch.registry.MappingDataFieldModel.FieldContract;
 import ch.admin.bit.jeap.opensearch.registry.verifier.ValidationResult;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -62,63 +64,89 @@ class MappingVersionCompatibilityValidator {
         File prevFile = new File(indexTypeDir, previous.mappingDefinition());
         File currFile = new File(indexTypeDir, current.mappingDefinition());
 
-        JsonNode prevData;
-        JsonNode currData;
+        MappingDataFieldModel previousModel;
+        MappingDataFieldModel currentModel;
         try {
-            prevData = getDataProperties(JSON_MAPPER.readTree(prevFile));
-            currData = getDataProperties(JSON_MAPPER.readTree(currFile));
+            previousModel = MappingDataFieldModel.from(JSON_MAPPER.readTree(prevFile));
+            currentModel = MappingDataFieldModel.from(JSON_MAPPER.readTree(currFile));
         } catch (JacksonIOException e) {
             return ValidationResult.fail("Cannot read mapping file for compatibility check: " + e.getMessage());
         }
 
-        if (prevData == null || currData == null) {
-            return ValidationResult.ok();
-        }
-
-        // All properties in the previous version must still exist in the new version (no removals)
-        return validateNoPropertiesRemoved(prevData, currData, previous, current);
+        return validateFieldContracts(previousModel, currentModel, previous, current);
     }
 
-    private ValidationResult validateNoPropertiesRemoved(JsonNode prevData, JsonNode currData,
-                                                          MappingVersionRef previous, MappingVersionRef current) {
+    private ValidationResult validateFieldContracts(MappingDataFieldModel previousModel,
+                                                    MappingDataFieldModel currentModel,
+                                                    MappingVersionRef previous, MappingVersionRef current) {
         List<String> removedProperties = new ArrayList<>();
-        collectRemovedProperties(prevData, currData, "", removedProperties);
+        List<String> changedTypes = new ArrayList<>();
+        List<String> changedCardinalities = new ArrayList<>();
+        List<String> changedRepresentations = new ArrayList<>();
 
-        if (!removedProperties.isEmpty()) {
-            String message = ("Minor version %s is not backward compatible with v%d.%d for index type '%s': "
-                    + "the following data properties were removed: %s. "
-                    + "Minor versions must only add new properties.")
-                    .formatted(current.versionLabel(), previous.major(), previous.minor(),
-                            indexTypeName, String.join(", ", removedProperties));
-            return ValidationResult.fail(message);
-        }
-        return ValidationResult.ok();
-    }
-
-    private void collectRemovedProperties(JsonNode prev, JsonNode curr, String path, List<String> removed) {
-        if (!prev.isObject() || !curr.isObject()) {
-            return;
-        }
-        for (Map.Entry<String, JsonNode> entry : prev.properties()) {
-            String fieldName = entry.getKey();
-            String fieldPath = path.isEmpty() ? fieldName : path + "." + fieldName;
-
-            if (!curr.has(fieldName)) {
-                removed.add(fieldPath);
-            } else if (entry.getValue().isObject() && entry.getValue().has("properties")) {
-                // Recurse into nested objects
-                JsonNode prevNested = entry.getValue().get("properties");
-                JsonNode currNested = curr.get(fieldName).path("properties");
-                if (!currNested.isMissingNode()) {
-                    collectRemovedProperties(prevNested, currNested, fieldPath, removed);
+        previousModel.fieldsByPath().forEach((path, previousField) -> {
+            FieldContract currentField = currentModel.fieldsByPath().get(path);
+            if (currentField == null) {
+                removedProperties.add(path);
+            } else {
+                if (!previousField.openSearchType().equals(currentField.openSearchType())) {
+                    changedTypes.add("%s (%s -> %s)".formatted(
+                            path, previousField.openSearchType(), currentField.openSearchType()));
+                }
+                if (previousField.collection() != currentField.collection()) {
+                    changedCardinalities.add("%s (%s -> %s)".formatted(path,
+                            cardinality(previousField), cardinality(currentField)));
+                }
+                if (previousField.structured() != currentField.structured()) {
+                    changedRepresentations.add("%s (%s -> %s)".formatted(path,
+                            representation(previousField), representation(currentField)));
                 }
             }
+        });
+
+        List<String> incompatibilities = new ArrayList<>();
+        if (!removedProperties.isEmpty()) {
+            incompatibilities.add("data properties were removed: " + String.join(", ", removedProperties));
         }
+        if (!changedTypes.isEmpty()) {
+            incompatibilities.add("data property types changed: " + String.join(", ", changedTypes));
+        }
+        if (!changedCardinalities.isEmpty()) {
+            incompatibilities.add("data property cardinality changed: " + String.join(", ", changedCardinalities));
+        }
+        if (!changedRepresentations.isEmpty()) {
+            incompatibilities.add(
+                    "generated data property representation changed: " + String.join(", ", changedRepresentations));
+        }
+        List<String> previousPaths = previousModel.fieldsByPath().keySet().stream()
+                .filter(currentModel.fieldsByPath()::containsKey)
+                .toList();
+        List<String> currentPaths = currentModel.fieldsByPath().keySet().stream()
+                .filter(previousModel.fieldsByPath()::containsKey)
+                .toList();
+        if (!previousPaths.equals(currentPaths)) {
+            List<String> movedFields = previousPaths.stream()
+                    .filter(path -> previousPaths.indexOf(path) != currentPaths.indexOf(path))
+                    .map(path -> "%s (%d -> %d)".formatted(
+                            path, previousPaths.indexOf(path) + 1, currentPaths.indexOf(path) + 1))
+                    .toList();
+            incompatibilities.add("existing data properties were reordered: " + String.join(", ", movedFields));
+        }
+        if (incompatibilities.isEmpty()) {
+            return ValidationResult.ok();
+        }
+        return ValidationResult.fail(
+                "Minor version %s is not backward compatible with v%d.%d for index type '%s': %s. "
+                        .formatted(current.versionLabel(), previous.major(), previous.minor(), indexTypeName,
+                                String.join("; ", incompatibilities)));
     }
 
-    private JsonNode getDataProperties(JsonNode mapping) {
-        JsonNode dataNode = mapping.path("mappings").path("properties").path("data").path("properties");
-        return dataNode.isMissingNode() ? null : dataNode;
+    private String cardinality(FieldContract field) {
+        return field.collection() ? "collection" : "single value";
+    }
+
+    private String representation(FieldContract field) {
+        return field.structured() ? "generated record" : "JsonNode";
     }
 
     record MappingVersionRef(int major, int minor, String mappingDefinition) {

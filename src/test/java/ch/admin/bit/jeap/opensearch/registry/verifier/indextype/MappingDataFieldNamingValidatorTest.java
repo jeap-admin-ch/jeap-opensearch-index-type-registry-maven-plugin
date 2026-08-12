@@ -153,6 +153,28 @@ class MappingDataFieldNamingValidatorTest {
     }
 
     @Test
+    void propertiesOnScalarFieldAreNotTreatedAsGeneratedDataFields() throws IOException {
+        String mapping = """
+                {
+                  "mappings": {
+                    "properties": {
+                      "data": {
+                        "properties": {
+                          "name": {
+                            "type": "keyword",
+                            "properties": { "notCamelCase": { "type": "keyword" } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """;
+
+        assertThat(validate(mapping).isValid()).isTrue();
+    }
+
+    @Test
     void multipleViolations_allReportedInSingleError() throws IOException {
         String mapping = """
                 {

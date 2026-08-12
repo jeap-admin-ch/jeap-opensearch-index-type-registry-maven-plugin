@@ -114,6 +114,7 @@ public class IndexTypeRegistryMojo extends AbstractMojo {
                 .build();
 
         ValidationResult result = DescriptorDirectoryValidator.validate(validationContext);
+        result.getWarnings().forEach(getLog()::warn);
         if (!result.isValid()) {
             result.getErrors().forEach(getLog()::error);
             throw new MojoExecutionException(

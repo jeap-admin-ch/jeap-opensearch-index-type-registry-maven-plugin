@@ -12,6 +12,10 @@ by the plugin.
 | Remove a field from `data`           | Increment **major** version      | New mapping file, new data record class (`DataV<n>`), new `IndexType` singleton (`IndexTypeV<n>`). |
 | Rename a field in `data`             | Increment **major** version      | Treated as remove + add.                                                                           |
 | Change a field type                  | Increment **major** version      | Incompatible with existing documents.                                                              |
+| Add a new collection field           | Increment **minor** version      | Add the field and its path in `collection_fields` in the new mapping.                              |
+| Change an existing field cardinality | Increment **major** version      | Changing between `T` and `List<T>` changes the generated Java API.                                |
+| Reorder existing fields              | Increment **major** version      | Record constructor parameter order is part of the generated Java API.                              |
+| Add or remove object `properties`    | Increment **major** version      | Changes the generated Java type between `JsonNode` and a record.                                   |
 | Add a new index type                 | New descriptor + initial mapping | New per-type artifact.                                                                             |
 | Delete an index type                 | **Not allowed**                  | Build fails — index types on trunk are immutable.                                                  |
 | Modify an existing mapping file      | **Not allowed**                  | Build fails — detected by CRC32 checksum.                                                          |
@@ -57,6 +61,13 @@ the same index type simultaneously:
 2. Add the new version entry to the descriptor.
 3. The plugin regenerates the data record for that major version with the new field, and updates the artifact version to `<major>.<new-minor>`.
 4. On startup, the index writer service detects the version change and pushes the updated mapping to the current write index automatically.
+
+Changing only `collection_fields` for an existing property is not a compatible minor change. Create
+a new major mapping instead. Existing mapping files, including their `_meta` section, remain
+immutable after publication.
+
+This rule also applies to `nested` fields: adding or removing their path changes the generated Java
+type between a single record and `List<Record>`.
 
 ## Related
 

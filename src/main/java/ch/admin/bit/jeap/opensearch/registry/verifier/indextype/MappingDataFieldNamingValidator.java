@@ -64,8 +64,10 @@ class MappingDataFieldNamingValidator {
             if (!SNAKE_CASE.matcher(name).matches()) {
                 violations.add(fullPath);
             }
-            JsonNode nested = entry.getValue().path("properties");
-            if (!nested.isMissingNode() && nested.isObject()) {
+            JsonNode definition = entry.getValue();
+            String type = definition.path("type").asString("object");
+            JsonNode nested = definition.path("properties");
+            if (("object".equals(type) || "nested".equals(type)) && nested.isObject()) {
                 collectViolations(nested, fullPath, violations);
             }
         });

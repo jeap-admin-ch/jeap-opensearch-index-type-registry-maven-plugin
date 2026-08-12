@@ -14,6 +14,29 @@
         "properties"
       ],
       "properties": {
+        "_meta": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "description": "Mapping schema version managed by the index writer service."
+            },
+            "jeap": {
+              "type": "object",
+              "properties": {
+                "collection_fields": {
+                  "type": "array",
+                  "description": "Data-relative dotted paths of fields generated as Java lists.",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:_[a-z0-9]+)*)*$"
+                  },
+                  "uniqueItems": true
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
         "dynamic": {
           "type": "boolean",
           "enum": [

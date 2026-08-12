@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.File;
 import java.io.IOException;
@@ -398,7 +399,31 @@ class JavaBeanGeneratorTest {
     }
 
     @Test
-    void nestedFieldIsGeneratedAsListAndObjectFieldIsNot(@TempDir File outputDir, @TempDir File mappingDir)
+    void compatConstructorGeneratedWhenFieldAddedInsideNestedRecord(
+            @TempDir File outputDir, @TempDir File mappingDir) throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping_v1_0.json", DEEPLY_NESTED_MAPPING);
+        File v11 = writeMappingFile(mappingDir, "mapping_v1_1.json", DEEPLY_NESTED_MAPPING.replace(
+                "\"status\": { \"type\": \"keyword\" },", """
+                        "status": { "type": "keyword" },
+                        "reviewer": { "type": "keyword" },"""));
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 1, List.of(v10, v11));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("""
+                        public Cases(
+                            String status,
+                            ControlPattern controlPattern
+                        ) {
+                            this(status, null, controlPattern);
+                        }
+                """);
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void nestedFieldIsSingleValuedWithoutCollectionMetadata(@TempDir File outputDir, @TempDir File mappingDir)
             throws IOException, MojoExecutionException {
         File v10 = writeMappingFile(mappingDir, "mapping.json", NESTED_AND_OBJECT_MAPPING);
 
@@ -408,11 +433,9 @@ class JavaBeanGeneratorTest {
         String expected = """
                 package ch.admin.bit.test.index.jme.decreedocument;
 
-                import java.util.List;
-
                 public record JmeDecreeDocumentDataV1(
                     Single single,
-                    List<Many> many
+                    Many many
                 ) {
 
                     public record Single(
@@ -428,7 +451,23 @@ class JavaBeanGeneratorTest {
     }
 
     @Test
-    void nestedFieldWithoutPropertiesIsGeneratedAsListOfJsonNode(@TempDir File outputDir, @TempDir File mappingDir)
+    void nestedFieldIsGeneratedAsListWhenDeclaredAsCollection(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        String mapping = NESTED_AND_OBJECT_MAPPING.replace(
+                "\"dynamic\": false,", "\"dynamic\": false, \"_meta\": { \"jeap\": { \"collection_fields\": [\"many\"] } },");
+        File v10 = writeMappingFile(mappingDir, "mapping.json", mapping);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("List<Many> many");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void nestedFieldWithoutPropertiesIsSingleJsonNodeUnlessDeclaredAsCollection(
+            @TempDir File outputDir, @TempDir File mappingDir)
             throws IOException, MojoExecutionException {
         File v10 = writeMappingFile(mappingDir, "mapping.json", NESTED_WITHOUT_PROPERTIES_MAPPING);
 
@@ -437,15 +476,15 @@ class JavaBeanGeneratorTest {
 
         String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
         assertThat(source).contains("import tools.jackson.databind.JsonNode;");
-        assertThat(source).contains("import java.util.List;");
-        assertThat(source).contains("List<JsonNode> untyped");
+        assertThat(source).contains("JsonNode untyped");
+        assertThat(source).doesNotContain("java.util.List");
         // An `object` field without properties stays a single JsonNode
         assertThat(source).contains("JsonNode reference,");
         assertThat(compile(outputDir)).isEmpty();
     }
 
     @Test
-    void nestedFieldInsideNestedFieldIsGeneratedAsList(@TempDir File outputDir, @TempDir File mappingDir)
+    void nestedFieldsAtAnyDepthAreSingleUnlessDeclaredAsCollections(@TempDir File outputDir, @TempDir File mappingDir)
             throws IOException, MojoExecutionException {
         File v10 = writeMappingFile(mappingDir, "mapping.json", NESTED_INSIDE_NESTED_MAPPING);
 
@@ -453,8 +492,9 @@ class JavaBeanGeneratorTest {
                 "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
 
         String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
-        assertThat(source).contains("List<Outer> outer");
-        assertThat(source).contains("List<Inner> inner");
+        assertThat(source).contains("Outer outer");
+        assertThat(source).contains("Inner inner");
+        assertThat(source).doesNotContain("java.util.List");
         // The record declarations themselves stay singular
         assertThat(source).contains("public record Outer(");
         assertThat(source).contains("public record Inner(");
@@ -517,6 +557,88 @@ class JavaBeanGeneratorTest {
         }
     }
 
+    @Test
+    void collectionFieldsGenerateListsAtAnyDepth(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", COLLECTION_FIELDS_MAPPING);
+
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        String source = readSource(outputDir, "JmeDecreeDocumentDataV1.java");
+        assertThat(source).contains("List<String> keywords");
+        assertThat(source).contains("List<String> codes");
+        assertThat(source).contains("List<Cases> cases");
+        assertThat(source).contains("List<String> tags");
+        assertThat(compile(outputDir)).isEmpty();
+    }
+
+    @Test
+    void generatedRecordDeserializesDeclaredCollectionFields(@TempDir File outputDir, @TempDir File mappingDir)
+            throws Exception {
+        File v10 = writeMappingFile(mappingDir, "mapping.json", COLLECTION_FIELDS_MAPPING);
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        GeneratedSourceCompiler.Result compiled = GeneratedSourceCompiler.compileToClasses(outputDir);
+        assertThat(compiled.errors()).isEmpty();
+
+        String json = """
+                {
+                  "keywords": ["one", "two"],
+                  "details": { "codes": ["A", "B"] },
+                  "cases": [{ "tags": ["x", "y"] }]
+                }
+                """;
+
+        try (URLClassLoader classLoader = new URLClassLoader(
+                new URL[]{compiled.classOutput().toUri().toURL()}, getClass().getClassLoader())) {
+            Class<?> dataClass = classLoader.loadClass(BASE_PACKAGE + ".jme.decreedocument.JmeDecreeDocumentDataV1");
+            Object data = JsonMapper.builder().build().readValue(json, dataClass);
+
+            assertThat(dataClass.getMethod("keywords").invoke(data)).isEqualTo(List.of("one", "two"));
+            Object details = dataClass.getMethod("details").invoke(data);
+            assertThat(details.getClass().getMethod("codes").invoke(details)).isEqualTo(List.of("A", "B"));
+        }
+    }
+
+    @Test
+    void generatedRecordKeepsFieldsSingleValuedWithoutCollectionMetadata(
+            @TempDir File outputDir, @TempDir File mappingDir) throws Exception {
+        JsonMapper jsonMapper = JsonMapper.builder().build();
+        ObjectNode mapping = (ObjectNode) jsonMapper.readTree(COLLECTION_FIELDS_MAPPING);
+        ((ObjectNode) mapping.path("mappings")).remove("_meta");
+        File v10 = writeMappingFile(mappingDir, "mapping.json", mapping.toString());
+        generate(new JavaBeanGenerator(outputDir, BASE_PACKAGE, new SystemStreamLog()),
+                "JmeDecreeDocument", "JME", 1, 0, List.of(v10));
+
+        GeneratedSourceCompiler.Result compiled = GeneratedSourceCompiler.compileToClasses(outputDir);
+        assertThat(compiled.errors()).isEmpty();
+
+        String json = """
+                {
+                  "keywords": "one",
+                  "details": { "codes": "A" },
+                  "cases": { "tags": "x" }
+                }
+                """;
+
+        try (URLClassLoader classLoader = new URLClassLoader(
+                new URL[]{compiled.classOutput().toUri().toURL()}, getClass().getClassLoader())) {
+            Class<?> dataClass = classLoader.loadClass(BASE_PACKAGE + ".jme.decreedocument.JmeDecreeDocumentDataV1");
+            Object data = jsonMapper.readValue(json, dataClass);
+
+            assertThat(dataClass.getMethod("keywords").getReturnType()).isEqualTo(String.class);
+            assertThat(dataClass.getMethod("keywords").invoke(data)).isEqualTo("one");
+            Object details = dataClass.getMethod("details").invoke(data);
+            assertThat(details.getClass().getMethod("codes").getReturnType()).isEqualTo(String.class);
+            assertThat(details.getClass().getMethod("codes").invoke(details)).isEqualTo("A");
+            Object cases = dataClass.getMethod("cases").invoke(data);
+            assertThat(cases.getClass().getMethod("tags").getReturnType()).isEqualTo(String.class);
+            assertThat(cases.getClass().getMethod("tags").invoke(cases)).isEqualTo("x");
+        }
+    }
+
     private static final String NESTED_AND_OBJECT_MAPPING = """
             {
               "mappings": {
@@ -535,6 +657,40 @@ class JavaBeanGeneratorTest {
                         "type": "nested",
                         "properties": {
                           "name": { "type": "text" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String COLLECTION_FIELDS_MAPPING = """
+            {
+              "mappings": {
+                "dynamic": false,
+                "_meta": {
+                  "schema_version": 0,
+                  "jeap": {
+                    "collection_fields": ["keywords", "details.codes", "cases", "cases.tags"]
+                  }
+                },
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "keywords": { "type": "keyword" },
+                      "details": {
+                        "type": "object",
+                        "properties": {
+                          "codes": { "type": "keyword" }
+                        }
+                      },
+                      "cases": {
+                        "type": "nested",
+                        "properties": {
+                          "tags": { "type": "keyword" }
                         }
                       }
                     }
@@ -649,6 +805,7 @@ class JavaBeanGeneratorTest {
             {
               "mappings": {
                 "dynamic": false,
+                "_meta": { "jeap": { "collection_fields": ["compositions", "cases"] } },
                 "properties": {
                   "data": {
                     "type": "object",
@@ -728,6 +885,7 @@ class JavaBeanGeneratorTest {
             {
               "mappings": {
                 "dynamic": false,
+                "_meta": { "jeap": { "collection_fields": ["cases"] } },
                 "properties": {
                   "data": {
                     "type": "object",
@@ -757,6 +915,7 @@ class JavaBeanGeneratorTest {
             {
               "mappings": {
                 "dynamic": false,
+                "_meta": { "jeap": { "collection_fields": ["cases"] } },
                 "properties": {
                   "data": {
                     "type": "object",

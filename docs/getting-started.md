@@ -95,6 +95,12 @@ See [Descriptor file](descriptor-file.md) for all fields.
 {
   "mappings": {
     "dynamic": false,
+    "_meta": {
+      "schema_version": 0,
+      "jeap": {
+        "collection_fields": ["keywords"]
+      }
+    },
     "properties": {
       "search_item": { ... },
       "origin": { ... },
@@ -102,7 +108,8 @@ See [Descriptor file](descriptor-file.md) for all fields.
         "type": "object",
         "properties": {
           "document_id":    { "type": "keyword" },
-          "document_title": { "type": "text" }
+          "document_title": { "type": "text" },
+          "keywords":       { "type": "keyword" }
         }
       }
     }
@@ -135,7 +142,8 @@ After deployment, service instances add the generated artifact as a dependency:
 ```
 
 The artifact provides a ready-to-use `JmeDecreeDocumentIndexTypeV1.INSTANCE` singleton and a
-`JmeDecreeDocumentDataV1` data record.
+`JmeDecreeDocumentDataV1` data record. In this example its `keywords` component is generated as
+`List<String>`.
 
 ## Related
 

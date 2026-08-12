@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-08-13
+
+### Added
+- `registry`: support `mappings._meta.jeap.collection_fields` for generating scalar and object fields as `List<T>`, including fields at arbitrary nesting depth.
+- `registry`: validate collection field paths and reject generated API changes between minor mapping versions.
+
+### Changed
+- `registry`: require `nested` fields to be declared in `collection_fields` to generate `List<T>`.
+- `registry`: warn when structured `object` fields are declared as collections and report reordered field positions.
+
 ## [2.7.0] - 2026-08-13
 
 ### Changed
