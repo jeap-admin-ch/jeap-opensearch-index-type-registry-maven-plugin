@@ -27,7 +27,7 @@
     <parent>
         <groupId>ch.admin.bit.jeap</groupId>
         <artifactId>jeap-internal-spring-boot-parent</artifactId>
-        <version>8.9.0</version>
+        <version>8.9.1</version>
     </parent>
 
     <artifactId>jeap-opensearch-index-type-registry-maven-plugin</artifactId>
