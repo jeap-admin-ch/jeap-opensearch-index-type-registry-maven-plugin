@@ -38,13 +38,7 @@
     <properties>
         <maven.javadoc.skip>false</maven.javadoc.skip>
         <jeap-opensearch-index-type.version>1.18.0</jeap-opensearch-index-type.version>
-        <maven-invoker.version>3.3.0</maven-invoker.version>
-        <maven.api.version>3.9.16</maven.api.version>
         <maven-plugin-plugin.version>3.15.2</maven-plugin-plugin.version>
-        <maven-plugin-testing-harness.version>3.5.1</maven-plugin-testing-harness.version>
-        <plexus-xml.version>4.1.1</plexus-xml.version>
-        <org.eclipse.jgit.version>7.7.1.202607240634-r</org.eclipse.jgit.version>
-        <json-schema-validator.version>3.0.6</json-schema-validator.version>
     </properties>
 
     <dependencyManagement>
@@ -69,42 +63,35 @@
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-plugin-api</artifactId>
-            <version>${maven.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-core</artifactId>
-            <version>${maven.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-artifact</artifactId>
-            <version>${maven.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-compat</artifactId>
-            <version>${maven.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.maven.shared</groupId>
             <artifactId>maven-invoker</artifactId>
-            <version>${maven-invoker.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.maven.plugin-tools</groupId>
             <artifactId>maven-plugin-annotations</artifactId>
-            <version>${maven-plugin-plugin.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.networknt</groupId>
             <artifactId>json-schema-validator</artifactId>
-            <version>${json-schema-validator.version}</version>
         </dependency>
         <dependency>
             <groupId>tools.jackson.core</groupId>
@@ -113,7 +100,6 @@
         <dependency>
             <groupId>org.eclipse.jgit</groupId>
             <artifactId>org.eclipse.jgit</artifactId>
-            <version>${org.eclipse.jgit.version}</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -140,7 +126,6 @@
         <dependency>
             <groupId>org.apache.maven.plugin-testing</groupId>
             <artifactId>maven-plugin-testing-harness</artifactId>
-            <version>${maven-plugin-testing-harness.version}</version>
             <scope>test</scope>
             <exclusions>
                 <exclusion>
@@ -156,7 +141,6 @@
         <dependency>
             <groupId>org.codehaus.plexus</groupId>
             <artifactId>plexus-xml</artifactId>
-            <version>${plexus-xml.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
