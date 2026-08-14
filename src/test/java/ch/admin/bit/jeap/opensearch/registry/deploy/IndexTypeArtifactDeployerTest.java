@@ -1,5 +1,6 @@
 package ch.admin.bit.jeap.opensearch.registry.deploy;
 
+import com.sun.net.httpserver.HttpServer;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.SystemStreamLog;
 import org.apache.maven.project.MavenProject;
@@ -10,8 +11,11 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
@@ -68,6 +72,97 @@ class IndexTypeArtifactDeployerTest {
 
         assertThatNoException().isThrownBy(() ->
                 deployer.deploy(info("MyType", "SYS", 1, "1.0", List.of(mapping))));
+    }
+
+    @Test
+    void existingReleaseArtifactSkipsMavenDeploy(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        CapturingDeployer deployer = new CapturingDeployer("ch.admin.bit", "1.0", outputDir);
+        deployer.releaseArtifactExists = true;
+        File mapping = writeMappingFile(mappingDir, "MyType_mapping_v1_0.json");
+
+        deployer.deploy(info("MyType", "SYS", 1, "1.0", List.of(mapping)));
+
+        assertThat(deployer.capturedRequest.getProperties())
+                .containsEntry("maven.deploy.skip", "true");
+        assertThat(deployer.releaseArtifactChecks).isEqualTo(1);
+    }
+
+    @Test
+    void missingReleaseArtifactIsDeployed(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        CapturingDeployer deployer = new CapturingDeployer("ch.admin.bit", "1.0", outputDir);
+        File mapping = writeMappingFile(mappingDir, "MyType_mapping_v1_0.json");
+
+        deployer.deploy(info("MyType", "SYS", 1, "1.0", List.of(mapping)));
+
+        assertThat(deployer.capturedRequest.getProperties())
+                .doesNotContainKey("maven.deploy.skip");
+        assertThat(deployer.releaseArtifactChecks).isEqualTo(1);
+    }
+
+    @Test
+    void snapshotArtifactDoesNotCheckReleaseRepository(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        CapturingDeployer deployer = new CapturingDeployer("ch.admin.bit", "1.0", outputDir);
+        File mapping = writeMappingFile(mappingDir, "MyType_mapping_v1_0.json");
+
+        deployer.deploy(info("MyType", "SYS", 1, "1.0-SNAPSHOT", List.of(mapping)));
+
+        assertThat(deployer.releaseArtifactChecks).isZero();
+        assertThat(deployer.capturedRequest.getProperties())
+                .doesNotContainKey("maven.deploy.skip");
+    }
+
+    @Test
+    void installDoesNotCheckReleaseRepository(@TempDir File outputDir, @TempDir File mappingDir)
+            throws IOException, MojoExecutionException {
+        CapturingDeployer deployer = new CapturingDeployer("install", "ch.admin.bit", "1.0", outputDir);
+        File mapping = writeMappingFile(mappingDir, "MyType_mapping_v1_0.json");
+
+        deployer.deploy(info("MyType", "SYS", 1, "1.0", List.of(mapping)));
+
+        assertThat(deployer.releaseArtifactChecks).isZero();
+        assertThat(deployer.capturedRequest.getProperties())
+                .doesNotContainKey("maven.deploy.skip");
+    }
+
+    @Test
+    void artifactPomUriUsesMavenRepositoryLayout() {
+        URI uri = IndexTypeArtifactDeployer.artifactPomUri(
+                "https://repo.example/releases", "ch.admin.bit.test", "my-artifact", "1.2");
+
+        assertThat(uri).hasToString(
+                "https://repo.example/releases/ch/admin/bit/test/my-artifact/1.2/my-artifact-1.2.pom");
+    }
+
+    @Test
+    void releaseRepositoryStatusDeterminesWhetherArtifactExists(@TempDir File outputDir)
+            throws IOException, MojoExecutionException {
+        AtomicInteger status = new AtomicInteger(200);
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/", exchange -> {
+            exchange.sendResponseHeaders(status.get(), -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String repositoryUrl = "http://localhost:" + server.getAddress().getPort() + "/releases";
+            RepositoryCheckingDeployer deployer = new RepositoryCheckingDeployer(repositoryUrl, outputDir);
+
+            assertThat(deployer.artifactExists()).isTrue();
+
+            status.set(404);
+            assertThat(deployer.artifactExists()).isFalse();
+
+            status.set(302);
+            assertThat(deployer.artifactExists()).isFalse();
+
+            status.set(500);
+            assertThat(deployer.artifactExists()).isFalse();
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test
@@ -218,21 +313,36 @@ class IndexTypeArtifactDeployerTest {
         String capturedServicesContent;
         int exitCode = 0;
         String outputToFeed = "";
+        boolean releaseArtifactExists;
+        int releaseArtifactChecks;
 
         CapturingDeployer(String groupIdPrefix, String indexTypeVersion, File outputDir) {
-            super("deploy", null, null, null,
-                    groupIdPrefix, indexTypeVersion, outputDir, null, new MavenProject(), new SystemStreamLog());
+            this("deploy", groupIdPrefix, indexTypeVersion, outputDir);
+        }
+
+        CapturingDeployer(String mavenDeployGoal, String groupIdPrefix, String indexTypeVersion, File outputDir) {
+            super(mavenDeployGoal, null, null, null,
+                    groupIdPrefix, indexTypeVersion, outputDir, null, "https://repo.example/releases",
+                    new MavenProject(), new SystemStreamLog());
         }
 
         CapturingDeployer(String groupIdPrefix, String indexTypeVersion, File outputDir, File pomTemplateFile) {
             super("deploy", null, null, null,
-                    groupIdPrefix, indexTypeVersion, outputDir, pomTemplateFile, new MavenProject(), new SystemStreamLog());
+                    groupIdPrefix, indexTypeVersion, outputDir, pomTemplateFile, "https://repo.example/releases",
+                    new MavenProject(), new SystemStreamLog());
         }
 
         CapturingDeployer(String groupIdPrefix, String indexTypeVersion, File outputDir, File pomTemplateFile,
                            MavenProject project) {
             super("deploy", null, null, null,
-                    groupIdPrefix, indexTypeVersion, outputDir, pomTemplateFile, project, new SystemStreamLog());
+                    groupIdPrefix, indexTypeVersion, outputDir, pomTemplateFile, "https://repo.example/releases",
+                    project, new SystemStreamLog());
+        }
+
+        @Override
+        protected boolean artifactExistsInReleaseRepository(String groupId, String artifactId, String version) {
+            releaseArtifactChecks++;
+            return releaseArtifactExists;
         }
 
         @Override
@@ -272,6 +382,17 @@ class IndexTypeArtifactDeployerTest {
                     };
                 }
             };
+        }
+    }
+
+    static class RepositoryCheckingDeployer extends IndexTypeArtifactDeployer {
+        RepositoryCheckingDeployer(String releaseRepositoryUrl, File outputDir) {
+            super("deploy", null, null, null, "ch.admin.bit", "1.0", outputDir, null,
+                    releaseRepositoryUrl, new MavenProject(), new SystemStreamLog());
+        }
+
+        boolean artifactExists() throws MojoExecutionException {
+            return artifactExistsInReleaseRepository("ch.admin.bit.test", "my-artifact", "1.0");
         }
     }
 }

@@ -12,17 +12,28 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
 
+import static org.apache.maven.artifact.ArtifactUtils.isSnapshot;
+
 public class IndexTypeArtifactDeployer {
 
     private static final JsonMapper JSON_MAPPER = new JsonMapper();
+
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     private static final List<String> ALREADY_EXISTS_PATTERNS = List.of(
             "409", "already exists", "artifact already deployed",
@@ -36,6 +47,7 @@ public class IndexTypeArtifactDeployer {
     private final String indexTypeVersion;
     private final File outputDirectory;
     private final File pomTemplateFile;
+    private final String releaseRepositoryUrl;
     private final MavenProject project;
     private final Log log;
 
@@ -43,7 +55,7 @@ public class IndexTypeArtifactDeployer {
                                      String mavenExecutable, String mavenProfile,
                                      String groupIdPrefix, String indexTypeVersion,
                                      File outputDirectory, File pomTemplateFile,
-                                     MavenProject project, Log log) {
+                                     String releaseRepositoryUrl, MavenProject project, Log log) {
         this.mavenDeployGoal = mavenDeployGoal;
         this.mavenGlobalSettingsFile = mavenGlobalSettingsFile;
         this.mavenExecutable = mavenExecutable;
@@ -52,6 +64,7 @@ public class IndexTypeArtifactDeployer {
         this.indexTypeVersion = indexTypeVersion;
         this.outputDirectory = outputDirectory;
         this.pomTemplateFile = pomTemplateFile;
+        this.releaseRepositoryUrl = releaseRepositoryUrl;
         this.project = project;
         this.log = log;
     }
@@ -186,6 +199,11 @@ public class IndexTypeArtifactDeployer {
 
         Properties props = new Properties();
         props.setProperty("maven.test.skip", "true");
+        if (!isInstall && !isSnapshot(version) && artifactExistsInReleaseRepository(groupId, artifactId, version)) {
+            props.setProperty("maven.deploy.skip", "true");
+            log.info("Artifact %s:%s:%s already exists in the release repository; skipping its Maven deploy execution."
+                    .formatted(groupId, artifactId, version));
+        }
         // Colored output
         props.setProperty("style.color", "always");
         props.setProperty("jansi.force", "true");
@@ -221,6 +239,54 @@ public class IndexTypeArtifactDeployer {
         } catch (MavenInvocationException e) {
             throw new MojoExecutionException("Failed to invoke Maven for " + artifactId, e);
         }
+    }
+
+    protected boolean artifactExistsInReleaseRepository(String groupId, String artifactId, String version)
+            throws MojoExecutionException {
+        if (!StringUtils.hasText(releaseRepositoryUrl) || releaseRepositoryUrl.contains("${")) {
+            return false;
+        }
+
+        URI artifactPomUri;
+        try {
+            artifactPomUri = artifactPomUri(releaseRepositoryUrl, groupId, artifactId, version);
+        } catch (IllegalArgumentException e) {
+            throw new MojoExecutionException("Invalid release repository URL: " + releaseRepositoryUrl, e);
+        }
+
+        HttpRequest request = HttpRequest.newBuilder(artifactPomUri)
+                .timeout(Duration.ofSeconds(30))
+                .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                .build();
+        try {
+            int statusCode = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+            if (statusCode >= 200 && statusCode < 300) {
+                return true;
+            }
+            if (statusCode == 404) {
+                return false;
+            }
+            log.warn("Cannot determine whether %s:%s:%s exists in the release repository: HTTP %d from %s. "
+                            .formatted(groupId, artifactId, version, statusCode, artifactPomUri)
+                    + "Continuing with the Maven deploy execution.");
+            return false;
+        } catch (IOException e) {
+            log.warn("Cannot determine whether %s:%s:%s exists in the release repository. "
+                            .formatted(groupId, artifactId, version)
+                    + "Continuing with the Maven deploy execution.", e);
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new MojoExecutionException(
+                    "Interrupted while checking whether %s:%s:%s exists in the release repository"
+                            .formatted(groupId, artifactId, version), e);
+        }
+    }
+
+    static URI artifactPomUri(String repositoryUrl, String groupId, String artifactId, String version) {
+        String baseUrl = repositoryUrl.endsWith("/") ? repositoryUrl : repositoryUrl + "/";
+        return URI.create(baseUrl + groupId.replace('.', '/') + "/" + artifactId + "/" + version + "/"
+                + artifactId + "-" + version + ".pom");
     }
 
     protected Invoker createInvoker() {

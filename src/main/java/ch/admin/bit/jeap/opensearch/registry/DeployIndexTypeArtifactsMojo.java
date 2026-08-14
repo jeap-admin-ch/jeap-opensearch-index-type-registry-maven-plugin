@@ -38,8 +38,8 @@ import static org.springframework.util.StringUtils.hasText;
  *   <li>Deploys the JAR via {@code install:install-file} or {@code deploy:deploy-file}</li>
  * </ol>
  * <p>
- * The goal is idempotent: if an artifact already exists in the repository (HTTP 409),
- * it logs a warning and continues with the remaining index types.
+ * The goal is idempotent: release artifacts already present in the configured repository are not
+ * redeployed, and HTTP 409 responses are treated as already deployed artifacts.
  * <p>
  * When {@code deployAllIndexTypes=false} (the default) and a {@code gitUrl} is configured,
  * only index types that have new or changed mapping files compared to the trunk branch
@@ -82,6 +82,13 @@ public class DeployIndexTypeArtifactsMojo extends AbstractMojo {
     @Parameter(name = "mavenExecutable")
     @SuppressWarnings("unused")
     private String mavenExecutable;
+
+    /**
+     * URL of the release repository used to check whether an artifact has already been deployed.
+     */
+    @SuppressWarnings("unused")
+    @Parameter(name = "releaseRepositoryUrl", defaultValue = "${releaseRepositoryUrl}")
+    private String releaseRepositoryUrl;
 
     @SuppressWarnings("unused")
     @Parameter(name = "skip", defaultValue = "false")
@@ -195,7 +202,7 @@ public class DeployIndexTypeArtifactsMojo extends AbstractMojo {
         IndexTypeArtifactDeployer deployer = new IndexTypeArtifactDeployer(
                 mavenDeployGoal, mavenGlobalSettingsFile, mavenExecutable, activeProfile,
                 groupIdPrefix, indexTypeVersion, outputDirectory, resolveEffectivePomTemplate(),
-                project, getLog());
+                releaseRepositoryUrl, project, getLog());
 
         for (IndexTypeInfo info : toDeployList) {
             deployer.deploy(info);

@@ -51,6 +51,7 @@ artifacts are deployed.
                             <groupIdPrefix>ch.admin.bit.jme.indextype</groupIdPrefix>
                             <mavenDeployGoal>deploy</mavenDeployGoal>
                             <mavenGlobalSettingsFile>${basedir}/.github/actions/settings.xml</mavenGlobalSettingsFile>
+                            <releaseRepositoryUrl>${releaseRepositoryUrl}</releaseRepositoryUrl>
                         </configuration>
                     </execution>
                 </executions>

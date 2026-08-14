@@ -39,8 +39,10 @@ mvn verify -Dindextype.git.url= -DskipGeneration=true
 
 Packages each `(index type, major version)` pair into an individual Maven JAR and deploys it.
 
-The goal is **idempotent**: HTTP 409 Conflict responses (artifact already exists) are logged as
-warnings rather than failing the build, so the goal is safe to re-run.
+The goal is **idempotent** for releases. Before invoking Maven, it checks whether the artifact POM
+already exists in the configured release repository. Existing artifacts set `maven.deploy.skip=true`
+for the nested build, preventing partial uploads to immutable repositories while still allowing other
+publishing plugins in the generated POM to run. HTTP 409 Conflict responses are also logged as warnings.
 
 ### Parameters
 
@@ -51,6 +53,7 @@ warnings rather than failing the build, so the goal is safe to re-run.
 | `basePackage`             | *(required)*                | Must match the `registry` goal configuration.                                                                                                                       |
 | `mavenDeployGoal`         | `deploy`                    | `deploy` to push to a remote repository, `install` to install to the local Maven repository.                                                                        |
 | `mavenGlobalSettingsFile` | `${project.basedir}/settings.xml` (if present) | Path to a Maven `settings.xml` for repository authentication, resolved relative to `project.basedir` if not absolute. If unset (or the resolved file does not exist), falls back to `settings.xml` in the project's basedir, if present; otherwise no global settings file is passed to the nested Maven invocation. |
+| `releaseRepositoryUrl`    | `${releaseRepositoryUrl}`   | Maven release repository used to check whether a release artifact already exists. If unset or inaccessible, the preflight check is skipped and deployment proceeds normally. |
 | `deployAllIndexTypes`     | `false`                     | When `true`, deploys all index types unconditionally. On trunk the plugin always deploys all types; on feature branches only changed types are deployed by default. |
 | `gitUrl`                  | —                           | Git URL for change detection. Set to empty to deploy all unconditionally.                                                                                           |
 | `gitTokenEnvVariableName` | `INDEX_TYPE_REPO_GIT_TOKEN` | Environment variable holding the Git token.                                                                                                                         |
