@@ -66,14 +66,21 @@ class MappingVersionCompatibilityValidator {
 
         MappingDataFieldModel previousModel;
         MappingDataFieldModel currentModel;
+        List<String> analysisDifferences;
         try {
-            previousModel = MappingDataFieldModel.from(JSON_MAPPER.readTree(prevFile));
-            currentModel = MappingDataFieldModel.from(JSON_MAPPER.readTree(currFile));
+            JsonNode previousDefinition = JSON_MAPPER.readTree(prevFile);
+            JsonNode currentDefinition = JSON_MAPPER.readTree(currFile);
+            previousModel = MappingDataFieldModel.from(previousDefinition);
+            currentModel = MappingDataFieldModel.from(currentDefinition);
+            analysisDifferences = MappingAnalysisCompatibility.differences(previousDefinition, currentDefinition);
         } catch (JacksonIOException e) {
             return ValidationResult.fail("Cannot read mapping file for compatibility check: " + e.getMessage());
         }
 
-        return validateFieldContracts(previousModel, currentModel, previous, current);
+        ValidationResult analysisResult = analysisDifferences.isEmpty() ? ValidationResult.ok() : ValidationResult.fail(
+                "Minor version %s is not backward compatible with %s for index type '%s': %s. Create a new major version and reindex."
+                        .formatted(current.versionLabel(), previous.versionLabel(), indexTypeName, String.join("; ", analysisDifferences)));
+        return ValidationResult.merge(analysisResult, validateFieldContracts(previousModel, currentModel, previous, current));
     }
 
     private ValidationResult validateFieldContracts(MappingDataFieldModel previousModel,

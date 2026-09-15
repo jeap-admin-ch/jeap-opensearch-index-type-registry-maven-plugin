@@ -3,10 +3,34 @@
   "title": "OpenSearch Mapping File",
   "description": "JSON schema for validating OpenSearch mapping files in the Index Type Registry.",
   "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "analysisComponents": {
+      "type": "object",
+      "additionalProperties": { "type": "object" }
+    }
+  },
   "required": [
     "mappings"
   ],
   "properties": {
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analysis": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "analyzer": { "$ref": "#/definitions/analysisComponents" },
+            "normalizer": { "$ref": "#/definitions/analysisComponents" },
+            "tokenizer": { "$ref": "#/definitions/analysisComponents" },
+            "filter": { "$ref": "#/definitions/analysisComponents" },
+            "char_filter": { "$ref": "#/definitions/analysisComponents" }
+          }
+        }
+      }
+    },
     "mappings": {
       "type": "object",
       "required": [

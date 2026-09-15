@@ -15,6 +15,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MappingVersionCompatibilityValidatorTest {
 
     @Test
+    void analysisChangeRequiresMajorVersion(@TempDir File dir) throws IOException {
+        String changed = "{\"settings\":{\"analysis\":{\"analyzer\":{\"fold\":{\"type\":\"custom\",\"tokenizer\":\"standard\"}}}},"
+                + TestRegistryBuilder.VALID_MAPPING_V1_0.substring(1);
+        write(dir, "old.json", TestRegistryBuilder.VALID_MAPPING_V1_0);
+        write(dir, "new.json", changed);
+        assertThat(validate(dir, "Foo", List.of(ref(1, 0, "old.json"), ref(1, 1, "new.json"))).getErrors())
+                .anyMatch(error -> error.contains("settings.analysis") && error.contains("new major"));
+        assertThat(validate(dir, "Foo", List.of(ref(1, 0, "old.json"), ref(2, 0, "new.json"))).isValid()).isTrue();
+    }
+
+    @Test
     void singleVersionIsAlwaysCompatible(@TempDir File dir) throws IOException {
         write(dir, "Foo_mapping_v1_0.json", TestRegistryBuilder.VALID_MAPPING_V1_0);
         ValidationResult result = validate(dir, "Foo", List.of(ref(1, 0, "Foo_mapping_v1_0.json")));

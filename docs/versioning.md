@@ -21,6 +21,33 @@ by the plugin.
 | Modify an existing mapping file      | **Not allowed**                  | Build fails — detected by CRC32 checksum.                                                          |
 | Change `roles` without a new mapping | **Not allowed**                  | Role changes require a new mapping version.                                                        |
 
+## Analysis compatibility
+
+Mapping and analysis share one versioned, immutable definition file.
+
+| Change | Required version |
+|---|---|
+| Add a compatible field using a built-in or already-installed analyzer/normalizer | Minor |
+| Add, remove, or change an analysis component, including defaults and unused components | Major |
+| Change `analyzer` or `normalizer` on an existing field or multi-field | Major |
+| Change `search_analyzer` or `search_quote_analyzer` on an existing field | Major (search-contract policy) |
+| Reorder JSON object keys in analysis, without changing content | No analysis incompatibility |
+| Reorder an analyzer's filter chain | Major |
+
+OpenSearch 3.3.2 rejects adding analyzer/normalizer settings to an open index as a non-dynamic settings
+update. The writer deliberately does not close/reopen existing indices at startup. Consequently even
+semantically additive analysis components require a new major with this lifecycle. A new field can use
+an existing component in a minor update. Changes to shared filters/tokenizers and implicit default
+analyzers are covered by comparing the complete analysis section, not only direct field references.
+
+Missing and empty analysis are equivalent. Existing file immutability still applies, even to formatting
+changes. Search-only changes can alter the search contract; this policy requires a major even where
+OpenSearch may support an update without reindexing.
+
+After a major change, deploy the compatible writer and new IndexType, backfill/reindex into the new
+index, validate results, and coordinate read-alias cutover. A template update does not reanalyze old
+documents. The shared read alias can temporarily expose old and new copies across majors.
+
 ## Artifact versioning
 
 Generated artifact versions follow:

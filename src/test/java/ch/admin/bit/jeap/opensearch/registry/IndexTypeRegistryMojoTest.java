@@ -23,6 +23,52 @@ class IndexTypeRegistryMojoTest {
     private static final JsonMapper JSON_MAPPER = new JsonMapper();
 
     @Test
+    void generatedIndexTypeJarPreservesNativeAnalysis(@TempDir File tempDir) throws Exception {
+        File descriptorDir = TestRegistryBuilder.mkdirs(tempDir, "index-types");
+        new TestRegistryBuilder(descriptorDir).buildValidIndexType();
+        File mappingFile = new File(descriptorDir, "jme/jmedecreedocument/JmeDecreeDocument_mapping_v1_0.json");
+        String definition = """
+                {"settings":{"analysis":{
+                  "analyzer":{"folding_analyzer":{"type":"custom","tokenizer":"standard","filter":["lowercase","asciifolding"]}},
+                  "normalizer":{"folding_normalizer":{"type":"custom","filter":["lowercase","asciifolding"]}}
+                }},
+                """ + TestRegistryBuilder.VALID_MAPPING_V1_0.substring(1);
+        Files.writeString(mappingFile.toPath(), definition);
+        File sources = new File(tempDir, "generated-sources");
+        File classes = new File(tempDir, "classes");
+        IndexTypeRegistryMojo mojo = new IndexTypeRegistryMojo();
+        setField(mojo, "descriptorDirectory", descriptorDir);
+        setField(mojo, "outputDirectory", sources);
+        setField(mojo, "outputResourcesDirectory", classes);
+        setField(mojo, "basePackage", "ch.admin.bit.test.index");
+        setField(mojo, "project", new MavenProject());
+        setField(mojo, "skipGeneration", false);
+        mojo.execute();
+
+        java.util.List<String> arguments = new java.util.ArrayList<>(java.util.List.of(
+                "-classpath", System.getProperty("java.class.path"), "-d", classes.getAbsolutePath()));
+        try (var files = Files.walk(sources.toPath())) {
+            files.filter(p -> p.toString().endsWith(".java")).map(Object::toString).forEach(arguments::add);
+        }
+        assertThat(javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null, arguments.toArray(String[]::new))).isZero();
+        File jar = new File(tempDir, "analysis-index-type.jar");
+        try (var out = new java.util.jar.JarOutputStream(Files.newOutputStream(jar.toPath()));
+             var files = Files.walk(classes.toPath())) {
+            for (var file : files.filter(Files::isRegularFile).toList()) {
+                out.putNextEntry(new java.util.jar.JarEntry(classes.toPath().relativize(file).toString()));
+                Files.copy(file, out);
+                out.closeEntry();
+            }
+        }
+        try (var loader = new java.net.URLClassLoader(new java.net.URL[]{jar.toURI().toURL()}, getClass().getClassLoader())) {
+            var indexType = java.util.ServiceLoader.load(ch.admin.bit.jeap.opensearch.indextype.IndexType.class, loader).findFirst().orElseThrow();
+            try (var stream = indexType.mappingDefinition().get()) {
+                assertThat(JSON_MAPPER.readTree(stream)).isEqualTo(JSON_MAPPER.readTree(definition));
+            }
+        }
+    }
+
+    @Test
     @Basedir("src/test/resources/valid")
     @InjectMojo(goal = "registry")
     void validRegistry(IndexTypeRegistryMojo mojo) {
