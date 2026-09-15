@@ -15,6 +15,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 class IndexTypeMappingSchemaValidatorTest {
 
     @Test
+    void nativeAnalysisComponentsAreAllowed(@TempDir File dir) throws IOException {
+        String settings = """
+                "settings":{"analysis":{
+                  "analyzer":{"fold":{"type":"custom","tokenizer":"words","filter":["lowercase","folding"],"char_filter":["clean"]}},
+                  "normalizer":{"fold":{"type":"custom","filter":["lowercase","asciifolding"]}},
+                  "tokenizer":{"words":{"type":"pattern","pattern":"\\\\W+"}},
+                  "filter":{"folding":{"type":"asciifolding","preserve_original":true}},
+                  "char_filter":{"clean":{"type":"mapping","mappings":["& => and"]}}
+                }},
+                """;
+        File mapping = write(dir, "mapping.json", "{" + settings + TestRegistryBuilder.VALID_MAPPING_V1_0.substring(1));
+        assertThat(validate(dir, mapping).isValid()).isTrue();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "\"settings\":{\"number_of_shards\":2}",
+            "\"settings\":{\"analysis\":[]}",
+            "\"settings\":{\"analysis\":{\"analyzer\":{\"fold\":true}}}",
+            "\"settings\":{\"analysis\":{\"accentInsensitive\":true}}",
+            "\"aliases\":{}"
+    })
+    void rejectsUnsupportedScopeAndMalformedAnalysis(String property, @TempDir File dir) throws IOException {
+        File mapping = write(dir, "mapping.json", "{" + property + "," + TestRegistryBuilder.VALID_MAPPING_V1_0.substring(1));
+        assertThat(validate(dir, mapping).isValid()).isFalse();
+    }
+
+    @Test
     void validMappingPassesValidation(@TempDir File dir) throws IOException {
         File mapping = write(dir, "mapping.json", TestRegistryBuilder.VALID_MAPPING_V1_0);
         assertThat(validate(dir, mapping).isValid()).isTrue();

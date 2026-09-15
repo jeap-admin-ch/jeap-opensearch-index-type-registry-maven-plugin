@@ -6,6 +6,7 @@ source of truth for all OpenSearch index types in a microservice landscape.
 ## Key Features
 
 - **Validation:** Enforces naming conventions, snake_case field names, and schema correctness on every build
+- **Native analysis:** Supports OpenSearch `settings.analysis` alongside mappings, including analyzers, normalizers, tokenizers, token filters, and character filters
 - **Immutability:** Existing mapping files on the trunk branch are immutable (CRC32-checked); index types and system directories cannot be deleted
 - **Backward compatibility:** Minor version changes may only add fields; breaking changes require a major version bump
 - **Code generation:** Generates typed Java records and `IndexType<T>` singletons from mapping definitions

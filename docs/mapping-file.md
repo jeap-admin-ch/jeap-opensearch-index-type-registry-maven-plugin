@@ -1,7 +1,50 @@
 # Mapping file
 
-Each mapping version has its own JSON file. The file is a standard OpenSearch mapping object with
-three required top-level sections.
+Each mapping version has its own JSON file. The file contains native OpenSearch `mappings` and
+optional `settings.analysis`. Within `mappings.properties`, the three required sections are
+`search_item`, `origin`, and `data`.
+
+## Native analysis
+
+An index definition may include native analyzers, normalizers, tokenizers, token filters, and character
+filters under `settings.analysis`. Component names and options are passed through without a jEAP DSL.
+The schema validates their object structure; OpenSearch validates concrete component types/options
+and references. Cluster plugins must provide any plugin-specific components.
+
+```json
+"settings": {
+  "analysis": {
+    "analyzer": {
+      "folding_analyzer": {
+        "type": "custom",
+        "tokenizer": "standard",
+        "filter": ["lowercase", "asciifolding"]
+      }
+    },
+    "normalizer": {
+      "folding_normalizer": {
+        "type": "custom",
+        "filter": ["lowercase", "asciifolding"]
+      }
+    }
+  }
+}
+```
+
+Reference these in `mappings.properties.data.properties`:
+
+```json
+"name": { "type": "text", "analyzer": "folding_analyzer" },
+"code": { "type": "keyword", "normalizer": "folding_normalizer" }
+```
+
+Indexing `name = "Café Müller"` allows a `match` query for `cafe muller` without a duplicate ASCII field
+or client-side folding. `_source` retains the original value. `asciifolding` is a token filter.
+
+Only `mappings` and `settings.analysis` are allowed at the definition boundary. Shards, replicas,
+refresh intervals, aliases, and other operational settings belong to the writer. Existing mapping-only
+files remain supported. The complete JSON, including analysis, is packaged in generated artifacts.
+See [Versioning](versioning.md#analysis-compatibility) before changing an existing definition.
 
 ## Required structure
 

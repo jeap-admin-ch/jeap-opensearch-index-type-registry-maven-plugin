@@ -1,5 +1,15 @@
 # Validation rules
 
+## Native analysis and ownership
+
+The index definition allows `mappings` and optional `settings.analysis` only. Analysis component maps
+(`analyzer`, `normalizer`, `tokenizer`, `filter`, `char_filter`) and their named definitions must be objects.
+Native component parameters remain OpenSearch-owned; the cluster validates supported types/options.
+Operational settings and custom root properties are rejected rather than silently ignored.
+
+Minor compatibility includes the complete analysis section and existing fields' analyzer/normalizer
+assignments, including nested properties and multi-fields. See [Analysis compatibility](versioning.md#analysis-compatibility).
+
 The `registry` goal enforces the following rules on every build. Violations fail the build with a
 descriptive error message.
 
