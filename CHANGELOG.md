@@ -8,8 +8,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [3.36.0] - 2026-10-24
 
 ### Changed
-
 - Update parent from 11.6.0 to 11.7.0
+- update jeap-opensearch-index-type from 1.54.0 to 1.55.0
 
 ## [3.35.0] - 2026-10-20
 
