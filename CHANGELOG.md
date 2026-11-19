@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.49.0] - 2026-11-19
+
+### Changed
+- No changes in this release; the version bump is to align with the parent POM version.
+
 ## [3.48.0] - 2026-11-19
 
 ### Changed
